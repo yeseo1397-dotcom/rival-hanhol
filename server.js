@@ -32,6 +32,8 @@ const later = (ms, fn) => { const t = setTimeout(fn, ms); timers.push(t); };
 const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
 const hostId = () => players.keys().next().value;
 const inGame = () => [...players.values()].filter(p => p.inGame);
+// 2명 이상이면 시작할 수 있고, 개발자 1명뿐이면 혼자서도 가능
+const enough = list => list.length >= 2 || (list.length === 1 && list[0].dev);
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const digest = s => crypto.createHash('sha256').update(String(s)).digest();
 
@@ -58,7 +60,7 @@ function resolveVote() {
   if (phase !== 'vote') return;
   clearTimers();
   const list = inGame();
-  if (list.length < 2) return backToLobby();
+  if (!enough(list)) return backToLobby();
   const counts = MAPS.map((_, i) => list.filter(p => p.vote === i).length), mx = Math.max(...counts);
   const pool = counts.map((c, i) => i).filter(i => mx === 0 || counts[i] === mx);
   mapIdx = pool[Math.floor(Math.random() * pool.length)];
@@ -121,7 +123,7 @@ wss.on('connection', ws => {
 
     switch (m.t) {
       case 'start':                                   // 방장만, 최소 2명
-        if (phase === 'lobby' && me.id === hostId() && players.size >= 2) startVote();
+        if (phase === 'lobby' && me.id === hostId() && enough([...players.values()])) startVote();
         break;
       case 'vote':
         if (phase === 'vote' && me.inGame && Number.isInteger(m.map) && m.map >= 0 && m.map < MAPS.length) {
@@ -148,7 +150,7 @@ wss.on('connection', ws => {
   ws.on('close', () => {
     if (!me) return;
     players.delete(me.id);
-    if (phase !== 'lobby' && inGame().length < 2) backToLobby();
+    if (phase !== 'lobby' && !enough(inGame())) backToLobby();
     else { sendLobby(); if (phase === 'vote') { sendVotes(); if (inGame().every(p => p.vote >= 0)) { clearTimers(); later(800, resolveVote); } } }
   });
 });

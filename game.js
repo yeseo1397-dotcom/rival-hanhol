@@ -21,7 +21,7 @@ const char=new THREE.Group(),cm=new THREE.MeshLambertMaterial({color:0x38d6c4});
   const m=new THREE.Mesh(g,cm);m.position.set(x,y,z);char.add(m)});
 scene.add(char);
 
-let boxes=[],mapObjs=[],spawns=[];
+let boxes=[],mapObjs=[],spawns=[],pads=[];
 function loadMap(m){
   mapObjs.forEach(o=>scene.remove(o));mapObjs=[];boxes=[];spawns=spawnsOf(m);
   scene.background=new THREE.Color(m.bg);const L=m.lit||[0xbfeee6,0x1a2a30,.95,0xfff0dd,.7];
@@ -35,6 +35,7 @@ function loadMap(m){
     const b=new THREE.Mesh(new THREE.BoxGeometry(w,top-y0,d),gl?new THREE.MeshBasicMaterial({color:c}):new THREE.MeshLambertMaterial({color:c}));
     b.position.set(x,(top+y0)/2,z);add(b);boxes.push({x,z,w:w/2,d:d/2,h:top,y0});
   });
+  pads=m.pads||[];pads.forEach(([x,z,y=0])=>{const p=new THREE.Mesh(new THREE.CylinderGeometry(1.2,1.2,.12,24),new THREE.MeshBasicMaterial({color:0xffe14a}));p.position.set(x,y+.06,z);add(p)});
   $('#mapname').textContent=`${m.name} (${m.label} ${S}×${S})`;
 }
 // 충돌: 한 칸 오르는 높이 STEP까지는 계단처럼 자동으로 올라가고, 그보다 높으면 막힙니다.
@@ -59,6 +60,7 @@ function update(dt){
   if(!blocked(P.x,P.z+mz,P.y,.35))P.z+=mz;
   const g=ground(P.x,P.z,P.y);
   if(keys.Space&&P.y<=g+.01)P.vy=8;
+  if(P.y<=g+.05&&pads.some(([x,z,y=0])=>Math.hypot(P.x-x,P.z-z)<1.2&&Math.abs(P.y-y)<.3))P.vy=14;   // 점프대
   if(P.vy>0){const hy=P.y+HEAD;if(boxes.some(b=>b.y0>0&&b.y0>=hy-.01&&hy+P.vy*dt>b.y0&&over(b,P.x,P.z,.3)))P.vy=0}
   P.vy-=25*dt;P.y+=P.vy*dt;if(P.y<=g){P.y=g;P.vy=0}
 }
@@ -125,9 +127,9 @@ function renderLobby(){
   lobbyList.forEach(p=>{const d=document.createElement('div'),a=document.createElement('span'),b=document.createElement('span');
     a.textContent=p.nick;b.textContent=(p.id===hostId?'방장 ':'')+(p.dev?'개발자':'');d.append(a,b);pl.append(d)});
   const host=hostId===myId,playing=gPhase!=='lobby';
-  $('#start').style.display=host&&!playing?'':'none';$('#start').disabled=lobbyList.length<2;
+  $('#start').style.display=host&&!playing?'':'none';const solo=lobbyList.length===1&&lobbyList[0].dev,ok=lobbyList.length>=2||solo;$('#start').disabled=!ok;
   $('#lmsg').textContent=playing?'경기가 진행 중입니다. 끝나면 대기실에서 함께해요.':
-    host?(lobbyList.length<2?'최소 2명이 필요합니다.':'모두 모였으면 시작하세요.'):'방장이 시작하기를 기다리는 중...';
+    host?(solo?'개발자 모드: 혼자서도 시작할 수 있어요.':ok?'모두 모였으면 시작하세요.':'최소 2명이 필요합니다.'):'방장이 시작하기를 기다리는 중...';
 }
 
 // 맵 투표 카드 (미리보기 + 서버가 보내주는 득표수)
@@ -143,6 +145,7 @@ MAPS.forEach((m,i)=>{
     g.fillStyle='#'+col.toString(16).padStart(6,'0');g.fillRect((x-w/2+o)*k,(z-d/2+o)*k,w*k,d*k);
     g.fillStyle=`rgba(255,255,255,${Math.min(h/8,.45)})`;g.fillRect((x-w/2+o)*k,(z-d/2+o)*k,w*k,d*k)});
   g.fillStyle='#38d6c4';spawnsOf(m).forEach(([x,z])=>g.fillRect((x+o)*k-2,(z+o)*k-2,4,4));
+  g.fillStyle='#ffe14a';(m.pads||[]).forEach(([x,z])=>{g.beginPath();g.arc((x+o)*k,(z+o)*k,3.5,0,6.3);g.fill()});
 });
 let lastCounts=MAPS.map(()=>0);
 function paintVotes(counts){
