@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Arena</title>
+<style>
+:root{--bg:#0e1a1f;--ink:#e8f1ee;--hot:#ff5a3c;--cool:#38d6c4;box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;overflow:hidden;user-select:none}
+canvas.main{display:block;position:fixed;inset:0}
+.hud{position:fixed;font-size:14px;line-height:1.7;background:#0008;padding:8px 12px;top:calc(12px + env(safe-area-inset-top,0px))}
+#help{left:16px}#right{right:16px;text-align:right}#ping{position:fixed;left:16px;bottom:12px;font-size:12px;opacity:.7}
+.badge{font-style:normal;background:var(--hot);color:#fff;padding:1px 8px;margin-left:6px;font-size:12px}
+.screen{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:20px;overflow:auto}
+.screen h1{margin:0;font-size:40px}.screen p{margin:0;opacity:.8;text-align:center}
+input{background:#16272e;border:2px solid #2d464e;color:var(--ink);padding:12px 14px;font-size:18px;width:240px;text-align:center}
+input:focus{outline:none;border-color:var(--cool)}
+button{background:var(--cool);color:#06201d;border:0;padding:11px 26px;font-size:16px;font-weight:700;cursor:pointer}
+button:disabled{opacity:.35;cursor:default}
+#err{color:var(--hot);min-height:20px}
+#plist{width:min(360px,100%);display:flex;flex-direction:column;gap:6px}
+#plist div{background:#16272e;padding:10px 14px;display:flex;justify-content:space-between}
+#cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;width:min(900px,100%)}
+.card{background:#16272e;border:2px solid #2d464e;padding:12px;cursor:pointer;text-align:center}
+.card.sel{border-color:var(--cool)}
+.card canvas{width:100%;aspect-ratio:1;display:block;background:#0b1418}
+.card b{display:block;margin:8px 0 2px;font-size:18px}.card small{display:block;opacity:.75;min-height:34px}
+.bar{height:6px;background:#0b1418;margin-top:6px}.bar i{display:block;height:100%;width:0;background:var(--cool);transition:width .3s}
+.cnt{margin-top:4px;font-weight:700}
+#big{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;pointer-events:none;text-align:center;text-shadow:0 2px 12px #000}
+#big b{font-size:64px}#big span{font-size:20px}
+#back{position:fixed;right:16px;bottom:16px;padding:8px 14px;font-size:13px}
+#dc{position:fixed;inset:0;background:#0e1a1fee;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:9}
+</style>
+</head>
+<body>
+<div class="hud" id="help" style="display:none">방향키: 시점 · WASD: 이동 · Space: 점프 · V: 3인칭<br>(개발자) F: 비행, Shift: 하강</div>
+<div class="hud" id="right" style="display:none"><div id="me"></div><div id="mapname"></div></div>
+<div id="ping"></div>
+<div id="big"></div>
+<button id="back" style="display:none">대기실로 돌아가기 (방장)</button>
+
+<div class="screen" id="login">
+  <h1>Arena</h1>
+  <p>닉네임을 정하고 입장하세요 (2~12자)</p>
+  <input id="nick" maxlength="12" placeholder="닉네임" autocomplete="off">
+  <input id="pw" type="password" placeholder="개발자 비밀번호" style="display:none">
+  <div id="err"></div>
+  <button id="enter">입장</button>
+</div>
+
+<div class="screen" id="lobby" style="display:none">
+  <h1>대기실</h1>
+  <p id="lmsg"></p>
+  <div id="plist"></div>
+  <button id="start">게임 시작</button>
+</div>
+
+<div class="screen" id="vote" style="display:none">
+  <h1>맵 투표</h1>
+  <p>가장 많은 표를 받은 맵으로 진행합니다. 전원이 투표하면 바로 시작해요.</p>
+  <div id="cards"></div>
+  <p id="vinfo"></p>
+</div>
+
+<div id="dc"><h1>연결이 끊겼습니다</h1><p>서버에 연결할 수 없거나 연결이 끊어졌어요.</p><button onclick="location.reload()">다시 접속</button></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="config.js"></script>
+<script src="maps.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
