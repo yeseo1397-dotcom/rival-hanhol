@@ -157,7 +157,7 @@ function paintVotes(counts){
 // 라운드 시작: 팀 공개 → 카운트다운 → 경기
 function startRound(m){
   const mp=MAPS[m.map];loadMap(mp);clearOthers();
-  myTeam=m.teams[myId].team;cm.color.set(tcol(myTeam));
+  myTeam=m.teams[myId].team;cm.color.set(tcol(myTeam));gun.material.color.set(tcol(myTeam));   // 1인칭 총도 팀 색으로
   const sp=m.spawns[myId];P.x=sp[0];P.z=sp[1];P.y=0;P.vy=0;P.pitch=0;P.yaw=sp[1]>0?0:Math.PI;fly=false;
   Object.entries(m.teams).forEach(([id,t])=>{if(+id!==myId)others[id]=makeOther(+id,t.team,t.nick,m.spawns[id])});
   const names=t=>Object.values(m.teams).filter(x=>x.team===t).map(x=>x.nick).join(', ');
