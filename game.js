@@ -4,6 +4,7 @@ const {MAPS,spawnsOf}=ARENA;
 const W=window.WEAPONS;
 const cfgUrl=(window.ARENA_CONFIG&&ARENA_CONFIG.SERVER_URL)||'';
 const others={};   // 다른 플레이어 (렌더 루프가 바로 쓰므로 맨 위에 선언)
+let spec=null,dead=false,deadBy=null;const tracers=[];
 const WS_URL=cfgUrl||((location.protocol==='https:'?'wss://':'ws://')+location.host);
 
 // ---------- 3D ----------
@@ -51,6 +52,7 @@ let mode='login',tp=false,dev=false,fly=false,nick='';const keys={};
 function spawn(){const s=spawns[Math.floor(Math.random()*spawns.length)];
   P.x=s[0];P.z=s[1];P.y=0;P.vy=0;P.pitch=0;P.yaw=s[1]>0?0:Math.PI;fly=false}
 function update(dt){
+  fireCd-=dt;if(dead)return;if(firing&&mode==='play')tryFire();
   if(keys.ArrowLeft)P.yaw+=1.9*dt; if(keys.ArrowRight)P.yaw-=1.9*dt;
   if(keys.ArrowUp)P.pitch=Math.min(1.2,P.pitch+1.5*dt); if(keys.ArrowDown)P.pitch=Math.max(-1.2,P.pitch-1.5*dt);
   const f=(keys.KeyW?1:0)-(keys.KeyS?1:0),s=(keys.KeyD?1:0)-(keys.KeyA?1:0);
@@ -69,6 +71,7 @@ function render(){
   cam.rotation.set(P.pitch,P.yaw,0);cam.position.set(P.x,P.y+1.6,P.z);
   if(tp){const back=new THREE.Vector3(0,0,1).applyEuler(cam.rotation);cam.position.addScaledVector(back,4);cam.position.y=Math.max(.4,cam.position.y+.3)}
   char.visible=tp;gun.visible=!tp;char.position.set(P.x,P.y,P.z);char.rotation.y=P.yaw;
+  if(dead){char.visible=false;gun.visible=false;if(spec){cam.position.set(spec.position.x,spec.position.y+1.6,spec.position.z);cam.rotation.set(0,spec.rotation.y,0)}}   // 사망 중엔 나를 처치한 사람 시점
   R.render(scene,cam);
 }
 let last=performance.now();
@@ -123,6 +126,16 @@ function handle(m){
     case 'teams': startRound(m);break;
     case 'state': applyState(m.p);break;
     case 'correct': P.x=m.x;P.y=m.y;P.z=m.z;break;
+    case 'shot':{const mine=m.id===myId,from=mine?[P.x,P.y+1.4,P.z]:[m.from[0],m.from[1]-.3,m.from[2]];
+      m.ends.forEach(e=>addTracer(from,e,m.team==='red'?0xff9a7a:0x9af2e8));break}
+    case 'hit':{const c=$('#ch');c.classList.add('hit');c.classList.toggle('hs',!!m.head);setTimeout(()=>c.classList.remove('hit','hs'),m.kill?220:100);break}
+    case 'hp':hp=m.hp;paintHud();if(m.dmg>0){$('#dmg').style.opacity=1;setTimeout(()=>$('#dmg').style.opacity=0,120)}break;
+    case 'ammo':ammo={a:m.a,m:m.m,r:m.r};paintHud();break;
+    case 'score':$('#score').replaceChildren(...scoreEls(m.red,m.blue));break;
+    case 'kill':killLog(m.k,m.v,m.head);break;
+    case 'died':{dead=true;firing=false;deadBy=m.by;spec=others[m.by]?others[m.by].mesh:null;
+      clearInterval(deadI);countdown2(m.secs,s=>big('처치당했습니다',`${nickMap[m.by]||''} 님에게 · ${s}초 후 부활`,'#ff5a3c'));break}
+    case 'respawn':{clearInterval(deadI);dead=false;spec=null;P.x=m.x;P.y=m.y;P.z=m.z;P.vy=0;P.pitch=0;P.yaw=m.yaw;big('');break}
     case 'pong': $('#ping').textContent=`핑 ${Date.now()-m.ts}ms`;break;
   }
 }
@@ -172,11 +185,40 @@ W.forEach(w=>{
   wgrid.append(c);
 });
 
+// ---------- 전투: 발사, 체력/탄약 표시, 킬 로그 ----------
+let hp=100,ammo={a:0,m:0,r:0},firing=false,fireCd=0,deadI=null;
+const teamMap={},nickMap={};
+const countdown2=(secs,fn)=>{let s=secs;fn(s);deadI=setInterval(()=>{s--;if(s>=0)fn(s);if(s<=0)clearInterval(deadI)},1000)};
+function paintHud(){
+  $('#hpnum').textContent=Math.max(0,Math.ceil(hp));$('#hpbar i').style.width=Math.max(0,hp)+'%';
+  $('#ammo').textContent=ammo.r?'재장전...':`${ammo.a} / ${ammo.m}`;
+}
+function scoreEls(r,b){const x=document.createElement('span'),y=document.createElement('span');
+  x.className='r';x.textContent=r;y.className='b';y.textContent=b;return[x,document.createTextNode(' : '),y]}
+function addTracer(a,b,color){
+  const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a),new THREE.Vector3(...b)]),new THREE.LineBasicMaterial({color}));
+  scene.add(l);tracers.push({l,t:.07});
+}
+function tryFire(){
+  if(fireCd>0||dead||ammo.r||ammo.a<=0)return;
+  fireCd=curWeapon.delay;ammo.a=Math.max(0,ammo.a-(curWeapon.id==='burst'?3:1));paintHud();
+  send({t:'shoot',x:+P.x.toFixed(2),y:+P.y.toFixed(2),z:+P.z.toFixed(2),yaw:+P.yaw.toFixed(3),pitch:+P.pitch.toFixed(3)});
+  gun.position.z=-.42;setTimeout(()=>gun.position.z=-.5,60);
+}
+function killLog(k,v,head){
+  const d=document.createElement('div'),a=document.createElement('span'),b=document.createElement('span');
+  a.textContent=nickMap[k]||'?';a.style.color=thex(teamMap[k]);b.textContent=nickMap[v]||'?';b.style.color=thex(teamMap[v]);
+  d.append(a,document.createTextNode(head?' ★ ':' → '),b);const kl=$('#klog');kl.prepend(d);setTimeout(()=>d.remove(),6000);
+  while(kl.children.length>5)kl.lastChild.remove();
+}
+
 // 라운드 시작: 팀 공개 → 카운트다운 → 경기
 function startRound(m){
   const mp=MAPS[m.map];loadMap(mp);clearOthers();
   myTeam=m.teams[myId].team;cm.color.set(tcol(myTeam));gun.material.color.set(tcol(myTeam));   // 1인칭 총도 팀 색으로
   curWeapon=W.find(x=>x.id===(m.weapons||{})[myId])||W[0];gun.scale.set(curWeapon.gun[0]/.08,curWeapon.gun[1]/.1,curWeapon.gun[2]/.5);
+  hp=100;ammo={a:curWeapon.mag,m:curWeapon.mag,r:0};dead=false;spec=null;firing=false;fireCd=0;clearInterval(deadI);$('#klog').replaceChildren();
+  Object.entries(m.teams).forEach(([id,t])=>{teamMap[id]=t.team;nickMap[id]=t.nick});paintHud();$('#score').replaceChildren(...scoreEls(0,0));
   const sp=m.spawns[myId];P.x=sp[0];P.z=sp[1];P.y=0;P.vy=0;P.pitch=0;P.yaw=sp[1]>0?0:Math.PI;fly=false;
   Object.entries(m.teams).forEach(([id,t])=>{if(+id!==myId)others[id]=makeOther(+id,t.team,t.nick,m.spawns[id])});
   const names=t=>Object.values(m.teams).filter(x=>x.team===t).map(x=>x.nick).join(', ');
@@ -185,10 +227,10 @@ function startRound(m){
   $('#mapname').append(document.createElement('br'),document.createTextNode('무기: '+curWeapon.name));
   const me=$('#me');me.replaceChildren(document.createTextNode(nick+' · '+tname(myTeam)));me.style.color=thex(myTeam);
   if(dev){const b=document.createElement('i');b.className='badge';b.textContent='개발자';me.append(b)}
-  ['#help','#right'].forEach(s=>$(s).style.display='');$('#back').style.display=hostId===myId?'':'none';
+  ['#help','#right','#combat'].forEach(s=>$(s).style.display='');$('#back').style.display=hostId===myId?'':'none';
 }
 function leaveGame(){mode='lobby';clearOthers();big('');clearInterval(timerI);myTeam=null;tp=false;
-  ['#help','#right','#back'].forEach(s=>$(s).style.display='none')}
+  dead=false;spec=null;firing=false;clearInterval(deadI);['#help','#right','#back','#combat'].forEach(s=>$(s).style.display='none')}
 
 // ---------- 다른 플레이어: 위치를 받아서 부드럽게 보간 ----------
 function bodyMesh(color){
@@ -209,26 +251,31 @@ function makeOther(id,team,name,sp){
   const mesh=bodyMesh(tcol(team));scene.add(mesh);
   if(team===myTeam)mesh.add(nameTag(name,thex(team)));          // 아군만 닉네임 표시, 적은 숨김
   mesh.position.set(sp[0],0,sp[1]);
-  return {mesh,tx:sp[0],ty:0,tz:sp[1],tyaw:sp[1]>0?0:Math.PI};
+  return {mesh,tx:sp[0],ty:0,tz:sp[1],tyaw:sp[1]>0?0:Math.PI,alive:true,inv:false};
 }
 function clearOthers(){for(const k in others){scene.remove(others[k].mesh);delete others[k]}}
 function applyState(list){
-  for(const [id,x,y,z,yaw] of list){const o=others[id];if(o){o.tx=x;o.ty=y;o.tz=z;o.tyaw=yaw}}
+  for(const [id,x,y,z,yaw,f] of list){const o=others[id];if(o){o.tx=x;o.ty=y;o.tz=z;o.tyaw=yaw;o.alive=!!(f&1);o.inv=!!(f&2)}}
   for(const k in others)if(!list.some(p=>p[0]==k)){scene.remove(others[k].mesh);delete others[k]}   // 나간 사람 제거
 }
 function updateOthers(dt){
   const k=Math.min(1,dt*12);
-  for(const id in others){const o=others[id],m=o.mesh;
+  for(let i=tracers.length-1;i>=0;i--){tracers[i].t-=dt;if(tracers[i].t<=0){scene.remove(tracers[i].l);tracers.splice(i,1)}}
+  for(const id in others){const o=others[id],m=o.mesh;m.visible=o.alive!==false&&(!o.inv||Math.floor(performance.now()/120)%2===0);   // 죽으면 숨김, 무적이면 깜빡임
+   
     m.position.x+=(o.tx-m.position.x)*k;m.position.y+=(o.ty-m.position.y)*k;m.position.z+=(o.tz-m.position.z)*k;
     const d=((o.tyaw-m.rotation.y+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;m.rotation.y+=d*k}
 }
-function netTick(dt){sendT+=dt;if(sendT>=.05){sendT=0;send({t:'move',x:+P.x.toFixed(2),y:+P.y.toFixed(2),z:+P.z.toFixed(2),yaw:+P.yaw.toFixed(3),pitch:+P.pitch.toFixed(3)})}}
+function netTick(dt){if(dead)return;sendT+=dt;if(sendT>=.05){sendT=0;send({t:'move',x:+P.x.toFixed(2),y:+P.y.toFixed(2),z:+P.z.toFixed(2),yaw:+P.yaw.toFixed(3),pitch:+P.pitch.toFixed(3)})}}
 
 addEventListener('keydown',e=>{
   if(mode==='play'&&(e.code.startsWith('Arrow')||e.code==='Space'))e.preventDefault();
   keys[e.code]=true;
-  if(mode==='play'){if(e.code==='KeyV')tp=!tp;if(e.code==='KeyF'&&dev){fly=!fly;P.vy=0}}
+  if(mode==='play'){if(e.code==='KeyV')tp=!tp;if(e.code==='KeyR')send({t:'reload'});if(e.code==='KeyJ')firing=true;if(e.code==='KeyF'&&dev){fly=!fly;P.vy=0}}
 });
-addEventListener('keyup',e=>keys[e.code]=false);
+addEventListener('keyup',e=>{keys[e.code]=false;if(e.code==='KeyJ')firing=false});
 addEventListener('resize',()=>{R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()});
+document.addEventListener('mousedown',e=>{if(mode==='play'&&e.button===0&&!e.target.closest('button'))firing=true});
+document.addEventListener('mouseup',()=>firing=false);
+addEventListener('blur',()=>firing=false);
 loadMap(MAPS[0]);$('#nick').focus();

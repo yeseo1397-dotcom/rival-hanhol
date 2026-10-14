@@ -3,12 +3,13 @@ const http = require('http'), fs = require('fs'), path = require('path'), crypto
 const { WebSocketServer } = require('ws');
 const { MAPS, spawnsOf } = require('./maps.js');
 const WEAPONS = require('./weapons.js');
+const Combat = require('./combat.js');
 
 const PORT = process.env.PORT || 3000;
 const DEV_NICK = '19';
 const DEV_PW = process.env.DEV_PASSWORD || '';        // 개발자 비밀번호는 코드가 아니라 환경변수로만 보관
 const MAX_PLAYERS = 10, VOTE_SECS = 15, WEAPON_SECS = 15, REVEAL_SECS = 3, COUNT_SECS = 3, TICK_MS = 50;
-const PUBLIC_FILES = new Set(['index.html', 'game.js', 'maps.js', 'weapons.js', 'config.js']);   // 브라우저에 내보낼 파일만 허용 (server.js 등은 비공개)
+const PUBLIC_FILES = new Set(['index.html', 'game.js', 'maps.js', 'weapons.js', 'combat.js', 'config.js']);   // 브라우저에 내보낼 파일만 허용 (server.js 등은 비공개)
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css' };
 
 // ---------- 정적 파일 (화면 파일을 같이 제공) ----------
@@ -24,7 +25,7 @@ const server = http.createServer((req, res) => {
 
 // ---------- 게임 상태 (방 1개) ----------
 const players = new Map();            // id -> player (들어온 순서 유지)
-let nextId = 1, phase = 'lobby', mapIdx = 0, timers = [], round = null;
+let nextId = 1, phase = 'lobby', mapIdx = 0, timers = [], round = null, combat = null, dummies = [];
 const wss = new WebSocketServer({ server, maxPayload: 2048 });
 
 const send = (p, o) => { if (p.ws.readyState === 1) p.ws.send(JSON.stringify(o)); };
@@ -99,15 +100,31 @@ function startReveal() {
   clearTimers();
   const weapons = {};
   for (const p of inGame()) { if (!p.weapon) p.weapon = WEAPONS[0].id; weapons[p.id] = p.weapon; }   // 못 고른 사람은 기본 무기
+  // 개발자 혼자일 때는 연습용 표적(움직이지 않고, 쓰러지면 5초 뒤 다시 나타남) 3개를 세운다
+  dummies = [];
+  const only = inGame();
+  if (only.length === 1 && only[0].dev) {
+    const blue = spawnsOf(MAPS[mapIdx]).slice(4);
+    [0, 1, 2].forEach(i => {
+      const s = blue[i], d = { id: 1000 + i, nick: '표적', team: 'blue', dummy: true, weapon: null, x: s[0], y: 0, z: s[1], yaw: Math.PI };
+      dummies.push(d); round.teams[d.id] = { team: 'blue', nick: '표적' }; round.spawns[d.id] = [s[0], s[1]];
+    });
+  }
   phase = 'reveal';
   broadcast({ t: 'teams', map: mapIdx, teams: round.teams, spawns: round.spawns, weapons, secs: REVEAL_SECS }, p => p.inGame);
+  combat = Combat.create({
+    map: MAPS[mapIdx], weapons: WEAPONS, spawns: spawnsOf(MAPS[mapIdx]), later,
+    ents: () => [...inGame(), ...dummies],
+    emit: (to, msg) => { if (to === 'all') broadcast(msg, p => p.inGame); else if (to.ws) send(to, msg); },
+  });
+  combat.start();
   later(REVEAL_SECS * 1000, () => {
     phase = 'countdown'; broadcast({ t: 'phase', phase: 'countdown', secs: COUNT_SECS }, p => p.inGame);
     later(COUNT_SECS * 1000, () => { phase = 'play'; broadcast({ t: 'phase', phase: 'play' }, p => p.inGame); });
   });
 }
 function backToLobby() {
-  clearTimers(); phase = 'lobby';
+  clearTimers(); phase = 'lobby'; combat = null; dummies = [];
   for (const p of players.values()) { p.inGame = false; p.team = null; }
   sendLobby();
 }
@@ -115,7 +132,7 @@ function backToLobby() {
 // 경기 중 위치 방송 (초당 20회)
 setInterval(() => {
   if (phase !== 'play' && phase !== 'countdown') return;
-  const list = inGame().map(p => [p.id, +p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2), +p.yaw.toFixed(3)]);
+  const list = [...inGame(), ...dummies].map(p => [p.id, +p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2), +p.yaw.toFixed(3), combat ? combat.flags(p) : 1]);
   broadcast({ t: 'state', p: list }, p => p.inGame);
 }, TICK_MS);
 
@@ -156,11 +173,13 @@ wss.on('connection', ws => {
           if (inGame().every(p => p.vote >= 0)) { clearTimers(); later(800, resolveVote); }   // 전원 투표하면 빨리 마감
         }
         break;
+      case 'shoot': if (phase === 'play' && combat) combat.shoot(me, m); break;
+      case 'reload': if (phase === 'play' && combat) combat.reload(me); break;
       case 'weapon':
         if (phase === 'weapons' && me.inGame && WEAPONS.some(w => w.id === m.id)) { me.weapon = m.id; sendPicks(); checkAllPicked(); }
         break;
       case 'move': {
-        if (phase !== 'play' || !me.inGame) break;
+        if (phase !== 'play' || !me.inGame || !combat || !me.alive) break;
         const now = Date.now(), dt = Math.max((now - me.lastMove) / 1000, .03); me.lastMove = now;
         const half = MAPS[mapIdx].size / 2 - .4, c = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v) || 0));
         const nx = c(m.x, -half, half), nz = c(m.z, -half, half), ny = c(m.y, 0, me.dev ? 40 : 12);
