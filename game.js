@@ -271,9 +271,9 @@ function netTick(dt){if(dead)return;sendT+=dt;if(sendT>=.05){sendT=0;send({t:'mo
 addEventListener('keydown',e=>{
   if(mode==='play'&&(e.code.startsWith('Arrow')||e.code==='Space'))e.preventDefault();
   keys[e.code]=true;
-  if(mode==='play'){if(e.code==='KeyV')tp=!tp;if(e.code==='KeyR')send({t:'reload'});if(e.code==='KeyJ')firing=true;if(e.code==='KeyF'&&dev){fly=!fly;P.vy=0}}
+  if(mode==='play'){if(e.code==='KeyV')tp=!tp;if(e.code==='KeyT')send({t:'reload'});if(e.code==='KeyR'||e.code==='KeyJ')firing=true;if(e.code==='KeyF'&&dev){fly=!fly;P.vy=0}}
 });
-addEventListener('keyup',e=>{keys[e.code]=false;if(e.code==='KeyJ')firing=false});
+addEventListener('keyup',e=>{keys[e.code]=false;if(e.code==='KeyR'||e.code==='KeyJ')firing=false});
 addEventListener('resize',()=>{R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()});
 document.addEventListener('mousedown',e=>{if(mode==='play'&&e.button===0&&!e.target.closest('button'))firing=true});
 document.addEventListener('mouseup',()=>firing=false);

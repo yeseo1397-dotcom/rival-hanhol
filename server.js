@@ -68,7 +68,7 @@ function resolveVote() {
   mapIdx = pool[Math.floor(Math.random() * pool.length)];
   // 무작위로 섞어서 번갈아 배정 → 인원이 균등 (홀수면 레드가 1명 많음)
   const teams = {}, spawns = {}, sp = spawnsOf(MAPS[mapIdx]);
-  const side = { red: sp.slice(0, 4), blue: sp.slice(4) }, used = { red: 0, blue: 0 };
+  const side = { red: shuffle(sp.slice(0, 4)), blue: shuffle(sp.slice(4)) }, used = { red: 0, blue: 0 };
   shuffle(list.slice()).forEach((p, i) => {
     p.team = i % 2 === 0 ? 'red' : 'blue';
     const k = used[p.team]++, base = side[p.team][k % 4];
