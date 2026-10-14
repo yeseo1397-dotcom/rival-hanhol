@@ -29,6 +29,13 @@ button:disabled{opacity:.35;cursor:default}
 .cnt{margin-top:4px;font-weight:700}
 #big{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;pointer-events:none;text-align:center;text-shadow:0 2px 12px #000}
 #big b{font-size:64px}#big span{font-size:20px}
+#wgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;width:min(980px,100%)}
+.w{background:#16272e;border:2px solid #2d464e;padding:10px 12px;cursor:pointer}
+.w.sel{border-color:var(--cool);background:#1b3139}
+.w b{font-size:17px}.w em{font-style:normal;font-size:12px;opacity:.6;margin-left:6px}
+.w small{display:block;opacity:.75;margin:4px 0 8px;min-height:32px;font-size:12px}
+.st{display:flex;align-items:center;gap:6px;font-size:11px;opacity:.85;margin-top:3px}
+.st span{width:26px}.st i{flex:1;height:5px;background:#0b1418}.st u{display:block;height:100%;background:var(--cool);text-decoration:none}
 #back{position:fixed;right:16px;bottom:16px;padding:8px 14px;font-size:13px}
 #dc{position:fixed;inset:0;background:#0e1a1fee;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:9}
 </style>
@@ -63,11 +70,20 @@ button:disabled{opacity:.35;cursor:default}
   <p id="vinfo"></p>
 </div>
 
+<div class="screen" id="weapons" style="display:none">
+  <h1>무기 선택</h1>
+  <p id="wmap"></p>
+  <div id="wgrid"></div>
+  <p id="winfo"></p>
+  <p id="wcount"></p>
+</div>
+
 <div id="dc"><h1>연결이 끊겼습니다</h1><p>서버에 연결할 수 없거나 연결이 끊어졌어요.</p><button onclick="location.reload()">다시 접속</button></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="config.js"></script>
 <script src="maps.js"></script>
+<script src="weapons.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

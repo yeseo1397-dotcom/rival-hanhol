@@ -1,6 +1,7 @@
 // Arena 클라이언트 (2단계): 렌더링/이동은 1단계 코드, 접속/대기실/투표/팀/동기화는 서버와 통신
 const $=s=>document.querySelector(s);
 const {MAPS,spawnsOf}=ARENA;
+const W=window.WEAPONS;
 const cfgUrl=(window.ARENA_CONFIG&&ARENA_CONFIG.SERVER_URL)||'';
 const others={};   // 다른 플레이어 (렌더 루프가 바로 쓰므로 맨 위에 선언)
 const WS_URL=cfgUrl||((location.protocol==='https:'?'wss://':'ws://')+location.host);
@@ -78,7 +79,7 @@ const RED=0xff5a3c,BLUE=0x38d6c4,tcol=t=>t==='red'?RED:BLUE,thex=t=>t==='red'?'#
 let ws,myId=null,myTeam=null,hostId=null,gPhase='login',lobbyList=[],myVote=-1,joined=false,timerI,sendT=0,pend=null;
 const norm=s=>s.normalize('NFKC').trim();
 const send=o=>ws&&ws.readyState===1&&ws.send(JSON.stringify(o));
-const show=id=>['login','lobby','vote'].forEach(k=>$('#'+k).style.display=k===id?'flex':'none');
+const show=id=>['login','lobby','vote','weapons'].forEach(k=>$('#'+k).style.display=k===id?'flex':'none');
 const big=(t,sub,color)=>{const b=$('#big');b.replaceChildren();if(!t)return;
   const x=document.createElement('b'),y=document.createElement('span');x.textContent=t;y.textContent=sub||'';if(color)x.style.color=color;b.append(x,y)};
 const countdown=(secs,fn)=>{clearInterval(timerI);let s=secs;fn(s);timerI=setInterval(()=>{s--;fn(s);if(s<=0)clearInterval(timerI)},1000)};
@@ -112,10 +113,13 @@ function handle(m){
       renderLobby();break}
     case 'phase':
       if(m.phase==='vote'){mode='vote';myVote=-1;paintVotes(MAPS.map(()=>0));show('vote');countdown(m.secs,s=>$('#vinfo').textContent=`남은 시간 ${s}초`)}
+      if(m.phase==='weapons'){mode='weapons';myWeapon=null;paintWeapons();show('weapons');$('#wmap').textContent='선택된 맵: '+MAPS[m.map].name;$('#wcount').textContent='';
+        countdown(m.secs,s=>$('#winfo').textContent=`남은 시간 ${s}초 · 무기를 골라주세요 (같은 무기를 골라도 돼요)`)}
       if(m.phase==='countdown'){mode='countdown';countdown(m.secs,s=>big(s>0?String(s):''))}
       if(m.phase==='play'){mode='play';big('')}
       break;
     case 'votes': paintVotes(m.counts);break;
+    case 'picks': $('#wcount').textContent=`${m.n}/${m.total}명 선택 완료`;break;
     case 'teams': startRound(m);break;
     case 'state': applyState(m.p);break;
     case 'correct': P.x=m.x;P.y=m.y;P.z=m.z;break;
@@ -154,15 +158,31 @@ function paintVotes(counts){
     c.querySelector('.cnt').textContent=counts[i]+'표';c.querySelector('.bar i').style.width=(counts[i]/total*100)+'%'});
 }
 
+// 무기 선택 카드
+let myWeapon=null,curWeapon=W[0];
+const wgrid=$('#wgrid'),STAT=['화력','연사','정확','기동'];
+const paintWeapons=()=>[...wgrid.children].forEach((c,i)=>c.classList.toggle('sel',W[i].id===myWeapon));
+W.forEach(w=>{
+  const c=document.createElement('div');c.className='w';
+  const t=document.createElement('b'),e=document.createElement('em'),d=document.createElement('small');
+  t.textContent=w.name;e.textContent=w.cls;t.append(e);d.textContent=w.desc;c.append(t,d);
+  w.s.forEach((v,i)=>{const r=document.createElement('div'),l=document.createElement('span'),b=document.createElement('i'),u=document.createElement('u');
+    r.className='st';l.textContent=STAT[i];u.style.width=(v*20)+'%';b.append(u);r.append(l,b);c.append(r)});
+  c.onclick=()=>{if(mode==='weapons'){myWeapon=w.id;send({t:'weapon',id:w.id});paintWeapons()}};
+  wgrid.append(c);
+});
+
 // 라운드 시작: 팀 공개 → 카운트다운 → 경기
 function startRound(m){
   const mp=MAPS[m.map];loadMap(mp);clearOthers();
   myTeam=m.teams[myId].team;cm.color.set(tcol(myTeam));gun.material.color.set(tcol(myTeam));   // 1인칭 총도 팀 색으로
+  curWeapon=W.find(x=>x.id===(m.weapons||{})[myId])||W[0];gun.scale.set(curWeapon.gun[0]/.08,curWeapon.gun[1]/.1,curWeapon.gun[2]/.5);
   const sp=m.spawns[myId];P.x=sp[0];P.z=sp[1];P.y=0;P.vy=0;P.pitch=0;P.yaw=sp[1]>0?0:Math.PI;fly=false;
   Object.entries(m.teams).forEach(([id,t])=>{if(+id!==myId)others[id]=makeOther(+id,t.team,t.nick,m.spawns[id])});
   const names=t=>Object.values(m.teams).filter(x=>x.team===t).map(x=>x.nick).join(', ');
   show(null);$('#vote').style.display='none';$('#lobby').style.display='none';
   mode='reveal';big(`당신은 ${tname(myTeam)}`,`레드: ${names('red')}  |  블루: ${names('blue')}`,thex(myTeam));
+  $('#mapname').append(document.createElement('br'),document.createTextNode('무기: '+curWeapon.name));
   const me=$('#me');me.replaceChildren(document.createTextNode(nick+' · '+tname(myTeam)));me.style.color=thex(myTeam);
   if(dev){const b=document.createElement('i');b.className='badge';b.textContent='개발자';me.append(b)}
   ['#help','#right'].forEach(s=>$(s).style.display='');$('#back').style.display=hostId===myId?'':'none';

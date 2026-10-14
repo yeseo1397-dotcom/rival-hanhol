@@ -2,12 +2,13 @@
 const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const { MAPS, spawnsOf } = require('./maps.js');
+const WEAPONS = require('./weapons.js');
 
 const PORT = process.env.PORT || 3000;
 const DEV_NICK = '19';
 const DEV_PW = process.env.DEV_PASSWORD || '';        // 개발자 비밀번호는 코드가 아니라 환경변수로만 보관
-const MAX_PLAYERS = 10, VOTE_SECS = 15, REVEAL_SECS = 3, COUNT_SECS = 3, TICK_MS = 50;
-const PUBLIC_FILES = new Set(['index.html', 'game.js', 'maps.js', 'config.js']);   // 브라우저에 내보낼 파일만 허용 (server.js 등은 비공개)
+const MAX_PLAYERS = 10, VOTE_SECS = 15, WEAPON_SECS = 15, REVEAL_SECS = 3, COUNT_SECS = 3, TICK_MS = 50;
+const PUBLIC_FILES = new Set(['index.html', 'game.js', 'maps.js', 'weapons.js', 'config.js']);   // 브라우저에 내보낼 파일만 허용 (server.js 등은 비공개)
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css' };
 
 // ---------- 정적 파일 (화면 파일을 같이 제공) ----------
@@ -23,7 +24,7 @@ const server = http.createServer((req, res) => {
 
 // ---------- 게임 상태 (방 1개) ----------
 const players = new Map();            // id -> player (들어온 순서 유지)
-let nextId = 1, phase = 'lobby', mapIdx = 0, timers = [];
+let nextId = 1, phase = 'lobby', mapIdx = 0, timers = [], round = null;
 const wss = new WebSocketServer({ server, maxPayload: 2048 });
 
 const send = (p, o) => { if (p.ws.readyState === 1) p.ws.send(JSON.stringify(o)); };
@@ -47,7 +48,7 @@ function sendLobby() {
 // ---------- 진행: 투표 → 팀 공개 → 카운트다운 → 경기 ----------
 function startVote() {
   phase = 'vote';
-  for (const p of players.values()) { p.inGame = true; p.vote = -1; p.team = null; }
+  for (const p of players.values()) { p.inGame = true; p.vote = -1; p.team = null; p.weapon = null; }
   broadcast({ t: 'phase', phase: 'vote', secs: VOTE_SECS });
   sendLobby();
   later(VOTE_SECS * 1000, resolveVote);
@@ -74,8 +75,32 @@ function resolveVote() {
     p.x = spawns[p.id][0]; p.z = spawns[p.id][1]; p.y = 0; p.yaw = p.z > 0 ? 0 : Math.PI;
     teams[p.id] = { team: p.team, nick: p.nick };
   });
+  round = { teams, spawns };
+  startWeapons();
+}
+
+// ---------- 무기 선택 (15초, 전원이 고르면 바로 진행. 같은 무기를 여러 명이 골라도 돼요) ----------
+function startWeapons() {
+  phase = 'weapons';
+  for (const p of inGame()) p.weapon = null;
+  broadcast({ t: 'phase', phase: 'weapons', secs: WEAPON_SECS, map: mapIdx }, p => p.inGame);
+  sendPicks();
+  later(WEAPON_SECS * 1000, startReveal);
+}
+function sendPicks() {
+  const l = inGame();
+  broadcast({ t: 'picks', n: l.filter(p => p.weapon).length, total: l.length }, p => p.inGame);
+}
+function checkAllPicked() {
+  if (phase === 'weapons' && inGame().every(p => p.weapon)) { clearTimers(); later(800, startReveal); }
+}
+function startReveal() {
+  if (phase !== 'weapons') return;
+  clearTimers();
+  const weapons = {};
+  for (const p of inGame()) { if (!p.weapon) p.weapon = WEAPONS[0].id; weapons[p.id] = p.weapon; }   // 못 고른 사람은 기본 무기
   phase = 'reveal';
-  broadcast({ t: 'teams', map: mapIdx, teams, spawns, secs: REVEAL_SECS }, p => p.inGame);
+  broadcast({ t: 'teams', map: mapIdx, teams: round.teams, spawns: round.spawns, weapons, secs: REVEAL_SECS }, p => p.inGame);
   later(REVEAL_SECS * 1000, () => {
     phase = 'countdown'; broadcast({ t: 'phase', phase: 'countdown', secs: COUNT_SECS }, p => p.inGame);
     later(COUNT_SECS * 1000, () => { phase = 'play'; broadcast({ t: 'phase', phase: 'play' }, p => p.inGame); });
@@ -131,6 +156,9 @@ wss.on('connection', ws => {
           if (inGame().every(p => p.vote >= 0)) { clearTimers(); later(800, resolveVote); }   // 전원 투표하면 빨리 마감
         }
         break;
+      case 'weapon':
+        if (phase === 'weapons' && me.inGame && WEAPONS.some(w => w.id === m.id)) { me.weapon = m.id; sendPicks(); checkAllPicked(); }
+        break;
       case 'move': {
         if (phase !== 'play' || !me.inGame) break;
         const now = Date.now(), dt = Math.max((now - me.lastMove) / 1000, .03); me.lastMove = now;
@@ -151,7 +179,7 @@ wss.on('connection', ws => {
     if (!me) return;
     players.delete(me.id);
     if (phase !== 'lobby' && !enough(inGame())) backToLobby();
-    else { sendLobby(); if (phase === 'vote') { sendVotes(); if (inGame().every(p => p.vote >= 0)) { clearTimers(); later(800, resolveVote); } } }
+    else { sendLobby(); if (phase === 'weapons') { sendPicks(); checkAllPicked(); } if (phase === 'vote') { sendVotes(); if (inGame().every(p => p.vote >= 0)) { clearTimers(); later(800, resolveVote); } } }
   });
 });
 

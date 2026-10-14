@@ -1,6 +1,6 @@
 # Arena (2단계, 폴더 없는 버전)
 
-파일이 전부 한 폴더에 있습니다. (index.html, game.js, maps.js, config.js, server.js, package.json)
+파일이 전부 한 폴더에 있습니다. (index.html, game.js, maps.js, weapons.js, config.js, server.js, package.json)
 
 ## 내 컴퓨터에서 실행
 ```
