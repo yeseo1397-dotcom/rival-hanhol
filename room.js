@@ -14,6 +14,8 @@ function createRoom(env){
   const hostId=()=>players.keys().next().value,inGame=()=>[...players.values()].filter(p=>p.inGame),ents=()=>[...inGame(),...dummies];
   const enough=l=>l.length>=2||(l.length===1&&l[0].dev);          // 2명 이상, 또는 개발자 혼자
   const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+  const SLOTS=['main','side','melee'],defLoadout=()=>{const l={};for(const s of SLOTS)l[s]=WEAPONS.find(w=>w.slot===s).id;return l};
+  const okLoad=(s,id)=>WEAPONS.some(w=>w.id===id&&w.slot===s);
   const aliveOf=t=>ents().filter(e=>e.team===t&&e.alive);
 
   function sendLobby(){
@@ -21,7 +23,7 @@ function createRoom(env){
 
   // ---------- 맵 투표 ----------
   function startVote(){
-    phase='vote';for(const p of players.values()){p.inGame=true;p.vote=-1;p.team=null;p.weapon=null}
+    phase='vote';for(const p of players.values()){p.inGame=true;p.vote=-1;p.team=null;p.weapon=null;p.loadout=defLoadout();p.ready=false}
     broadcast({t:'phase',phase:'vote',secs:C.VOTE_SECS});sendLobby();later(C.VOTE_SECS*1000,resolveVote)}
   function sendVotes(){broadcast({t:'votes',counts:MAPS.map((_,i)=>inGame().filter(p=>p.vote===i).length)},p=>p.inGame)}
   function checkAllVoted(){if(phase==='vote'&&inGame().every(p=>p.vote>=0)){clearTimers();later(800,resolveVote)}}
@@ -35,10 +37,10 @@ function createRoom(env){
 
   // ---------- 무기 선택 (15초, 전원이 고르면 바로 진행, 같은 무기 중복 가능) ----------
   function startWeapons(){
-    phase='weapons';for(const p of inGame())p.weapon=null;
+    phase='weapons';for(const p of inGame()){p.loadout=defLoadout();p.ready=false}
     broadcast({t:'phase',phase:'weapons',secs:C.WEAPON_SECS,map:mapIdx},p=>p.inGame);sendPicks();later(C.WEAPON_SECS*1000,startReveal)}
-  function sendPicks(){const l=inGame();broadcast({t:'picks',n:l.filter(p=>p.weapon).length,total:l.length},p=>p.inGame)}
-  function checkAllPicked(){if(phase==='weapons'&&inGame().every(p=>p.weapon)){clearTimers();later(800,startReveal)}}
+  function sendPicks(){const l=inGame();broadcast({t:'picks',n:l.filter(p=>p.ready).length,total:l.length},p=>p.inGame)}
+  function checkAllPicked(){if(phase==='weapons'&&inGame().every(p=>p.ready)){clearTimers();later(800,startReveal)}}
 
   // ---------- 팀 공개 → 라운드 시작 ----------
   function placeAll(){                            // 팀별로 스폰을 무작위로 섞어 배치
@@ -47,13 +49,13 @@ function createRoom(env){
     return out}
   function startReveal(){
     if(phase!=='weapons')return;clearTimers();
-    const weapons={};for(const p of inGame()){if(!p.weapon)p.weapon=WEAPONS[0].id;weapons[p.id]=p.weapon}
+    const loadouts={};for(const p of inGame()){p.weapon=p.loadout.main;loadouts[p.id]=p.loadout}
     dummies=[];const only=inGame();
     if(only.length===1&&only[0].dev)[0,1,2].forEach(i=>{       // 개발자 혼자면 연습용 표적 3개
       const d={id:100000+i,nick:'표적',team:'blue',dummy:true,weapon:null,x:0,y:0,z:0,yaw:Math.PI};dummies.push(d);teams[d.id]={team:'blue',nick:'표적'}});
     const spawns=placeAll();
     phase='reveal';roundNo=0;wins={red:0,blue:0};history=[];noKillMs=0;cleared=false;
-    broadcast({t:'teams',map:mapIdx,teams,spawns,weapons,secs:C.REVEAL_SECS,rounds:C.ROUNDS,maxHp:C.MAX_HP},p=>p.inGame);
+    broadcast({t:'teams',map:mapIdx,teams,spawns,loadouts,secs:C.REVEAL_SECS,rounds:C.ROUNDS,maxHp:C.MAX_HP},p=>p.inGame);
     combat=Combat.create({map:MAPS[mapIdx],weapons:WEAPONS,spawns:spawnsOf(MAPS[mapIdx]),later,maxHp:C.MAX_HP,respawnMs:0,ents,
       emit:(to,msg)=>{if(to==='all')broadcast(msg,p=>p.inGame);else if(to.conn)send(to,msg)},
       onKill:()=>{noKillMs=0;checkWipe()}});
@@ -109,7 +111,9 @@ function createRoom(env){
     switch(m.t){
       case 'start': if(phase==='lobby'&&p.id===hostId()&&enough([...players.values()]))startVote();break;
       case 'vote': if(phase==='vote'&&p.inGame&&Number.isInteger(m.map)&&m.map>=0&&m.map<MAPS.length){p.vote=m.map;sendVotes();checkAllVoted()}break;
-      case 'weapon': if(phase==='weapons'&&p.inGame&&WEAPONS.some(w=>w.id===m.id)){p.weapon=m.id;sendPicks();checkAllPicked()}break;
+      case 'loadout':                              // 주무기 / 보조무기 / 근접무기를 하나씩 고르고, 선택 완료를 누르면 준비 완료
+        if(phase==='weapons'&&p.inGame&&SLOTS.every(s=>okLoad(s,m[s]))){p.loadout={main:m.main,side:m.side,melee:m.melee};p.ready=m.ready===true;sendPicks();checkAllPicked()}break;
+      case 'slot': if(phase==='play'&&combat&&SLOTS.includes(m.slot))combat.equip(p,m.slot);break;      // 무기 교체
       case 'move':{
         if(phase!=='play'||!p.inGame||!combat||!p.alive)break;
         const now=Date.now(),dt=Math.max((now-p.lastMove)/1000,.03);p.lastMove=now;
