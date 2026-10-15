@@ -46,18 +46,26 @@ button:disabled{opacity:.35;cursor:default}
 #ammo{position:absolute;right:24px;bottom:70px;font-size:36px;font-weight:800;text-shadow:0 2px 8px #000}
 #klog{position:absolute;right:16px;top:calc(120px + env(safe-area-inset-top,0px));text-align:right;font-size:14px;line-height:1.7;text-shadow:0 1px 4px #000}
 #dmg{position:absolute;inset:0;box-shadow:inset 0 0 120px 30px var(--hot);opacity:0;transition:opacity .25s}
+#timer{position:absolute;top:calc(58px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);font-size:18px;text-shadow:0 1px 6px #000}
+#result{z-index:5;background:#0e1a1fe8}
+#rtable{width:min(520px,100%);display:flex;flex-direction:column;gap:4px}
+.rrow{display:grid;grid-template-columns:1fr 64px 44px 44px;gap:8px;background:#16272e;padding:8px 12px;text-align:center}
+.rrow span:first-child{text-align:left}.rrow.h{background:none;opacity:.6;font-size:13px}.rrow.me{outline:2px solid var(--cool)}
+#auto{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);pointer-events:auto;background:#0008;color:#e8f1ee;border:2px solid #2d464e;padding:8px 16px;font-size:14px}
+#auto.on{border-color:var(--cool);color:var(--cool)}
 #back{position:fixed;right:16px;bottom:16px;padding:8px 14px;font-size:13px}
 #dc{position:fixed;inset:0;background:#0e1a1fee;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:9}
 </style>
 </head>
 <body>
-<div class="hud" id="help" style="display:none">방향키: 시점 · WASD: 이동 · Space: 점프 · V: 3인칭 · 노란 원판: 점프대<br>R(또는 마우스 클릭, J): 발사 · T: 재장전<br>(개발자) F: 비행, Space: 상승, Shift: 하강</div>
+<div class="hud" id="help" style="display:none">방향키: 시점 · WASD: 이동 · Space: 점프 · V: 3인칭 · 노란 원판: 점프대<br>R(또는 마우스 클릭, J): 발사 · T: 재장전 · G: 오토 발사 켜기/끄기<br>(개발자) F: 비행, Space: 상승, Shift: 하강</div>
 <div class="hud" id="right" style="display:none"><div id="me"></div><div id="mapname"></div></div>
 <div id="ping"></div>
 <div id="big"></div>
 <div id="combat" style="display:none">
-  <div id="score"></div><div id="ch"></div>
+  <div id="score"></div><div id="timer"></div><div id="ch"></div>
   <div id="hp"><b id="hpnum">100</b><div id="hpbar"><i></i></div></div>
+  <button id="auto" type="button" tabindex="-1">오토 발사 OFF · G</button>
   <div id="ammo"></div><div id="klog"></div><div id="dmg"></div>
 </div>
 <button id="back" style="display:none">대기실로 돌아가기 (방장)</button>
@@ -91,6 +99,13 @@ button:disabled{opacity:.35;cursor:default}
   <div id="wgrid"></div>
   <p id="winfo"></p>
   <p id="wcount"></p>
+</div>
+
+<div class="screen" id="result" style="display:none">
+  <h1 id="rtitle"></h1>
+  <p id="rscore"></p>
+  <div id="rtable"></div>
+  <p id="rwait"></p>
 </div>
 
 <div id="dc"><h1>연결이 끊겼습니다</h1><p>서버에 연결할 수 없거나 연결이 끊어졌어요.</p><button onclick="location.reload()">다시 접속</button></div>

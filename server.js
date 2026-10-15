@@ -8,7 +8,7 @@ const Combat = require('./combat.js');
 const PORT = process.env.PORT || 3000;
 const DEV_NICK = '19';
 const DEV_PW = process.env.DEV_PASSWORD || '';        // 개발자 비밀번호는 코드가 아니라 환경변수로만 보관
-const MAX_PLAYERS = 10, VOTE_SECS = 15, WEAPON_SECS = 15, REVEAL_SECS = 3, COUNT_SECS = 3, TICK_MS = 50;
+const MAX_PLAYERS = 10, VOTE_SECS = 15, WEAPON_SECS = 15, ROUND_SECS = +process.env.ROUND_SECS || 180, WIN_KILLS = 5, NOKILL_SECS = +process.env.NOKILL_SECS || 120, RESULT_SECS = 10, REVEAL_SECS = 3, COUNT_SECS = 3, TICK_MS = 50;
 const PUBLIC_FILES = new Set(['index.html', 'game.js', 'maps.js', 'weapons.js', 'combat.js', 'config.js']);   // 브라우저에 내보낼 파일만 허용 (server.js 등은 비공개)
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css' };
 
@@ -25,7 +25,7 @@ const server = http.createServer((req, res) => {
 
 // ---------- 게임 상태 (방 1개) ----------
 const players = new Map();            // id -> player (들어온 순서 유지)
-let nextId = 1, phase = 'lobby', mapIdx = 0, timers = [], round = null, combat = null, dummies = [];
+let nextId = 1, phase = 'lobby', mapIdx = 0, timers = [], round = null, combat = null, dummies = [], lastKillAt = 0, cleared = false;
 const wss = new WebSocketServer({ server, maxPayload: 2048 });
 
 const send = (p, o) => { if (p.ws.readyState === 1) p.ws.send(JSON.stringify(o)); };
@@ -114,15 +114,30 @@ function startReveal() {
   broadcast({ t: 'teams', map: mapIdx, teams: round.teams, spawns: round.spawns, weapons, secs: REVEAL_SECS }, p => p.inGame);
   combat = Combat.create({
     map: MAPS[mapIdx], weapons: WEAPONS, spawns: spawnsOf(MAPS[mapIdx]), later,
+    onKill: (a, v, sc) => { lastKillAt = Date.now(); if (sc.red >= WIN_KILLS || sc.blue >= WIN_KILLS) endRound('score'); },
     ents: () => [...inGame(), ...dummies],
     emit: (to, msg) => { if (to === 'all') broadcast(msg, p => p.inGame); else if (to.ws) send(to, msg); },
   });
   combat.start();
   later(REVEAL_SECS * 1000, () => {
     phase = 'countdown'; broadcast({ t: 'phase', phase: 'countdown', secs: COUNT_SECS }, p => p.inGame);
-    later(COUNT_SECS * 1000, () => { phase = 'play'; broadcast({ t: 'phase', phase: 'play' }, p => p.inGame); });
+    later(COUNT_SECS * 1000, () => {
+      phase = 'play'; lastKillAt = Date.now(); cleared = false;
+      broadcast({ t: 'phase', phase: 'play', secs: ROUND_SECS }, p => p.inGame);
+      later(ROUND_SECS * 1000, () => endRound('time'));      // 제한 시간 종료
+    });
   });
 }
+// ---------- 경기 종료: 먼저 5킬 또는 제한 시간(3분)이 끝났을 때 킬이 더 많은 팀이 승리 ----------
+function endRound(reason) {
+  if (phase !== 'play' || !combat) return;
+  clearTimers(); phase = 'ended';
+  const sc = combat.score, winner = sc.red > sc.blue ? 'red' : sc.blue > sc.red ? 'blue' : 'draw';
+  const players = inGame().map(p => ({ id: p.id, nick: p.nick, team: p.team, kills: p.kills || 0, deaths: p.deaths || 0 }));
+  broadcast({ t: 'result', winner, red: sc.red, blue: sc.blue, reason, secs: RESULT_SECS, players }, p => p.inGame);
+  later(RESULT_SECS * 1000, backToLobby);                    // 10초 뒤 모두 대기실로
+}
+
 function backToLobby() {
   clearTimers(); phase = 'lobby'; combat = null; dummies = [];
   for (const p of players.values()) { p.inGame = false; p.team = null; }
@@ -132,6 +147,9 @@ function backToLobby() {
 // 경기 중 위치 방송 (초당 20회)
 setInterval(() => {
   if (phase !== 'play' && phase !== 'countdown') return;
+  if (phase === 'play' && combat && !cleared && Date.now() - lastKillAt >= NOKILL_SECS * 1000) {   // 오래 킬이 없으면 장애물 모두 제거
+    cleared = true; combat.clearObstacles(); broadcast({ t: 'clear' }, p => p.inGame);
+  }
   const list = [...inGame(), ...dummies].map(p => [p.id, +p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2), +p.yaw.toFixed(3), combat ? combat.flags(p) : 1]);
   broadcast({ t: 'state', p: list }, p => p.inGame);
 }, TICK_MS);

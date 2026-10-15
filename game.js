@@ -23,9 +23,9 @@ const char=new THREE.Group(),cm=new THREE.MeshLambertMaterial({color:0x38d6c4});
   const m=new THREE.Mesh(g,cm);m.position.set(x,y,z);char.add(m)});
 scene.add(char);
 
-let boxes=[],mapObjs=[],spawns=[],pads=[];
+let boxes=[],mapObjs=[],spawns=[],pads=[],obst=[],padM=[];
 function loadMap(m){
-  mapObjs.forEach(o=>scene.remove(o));mapObjs=[];boxes=[];spawns=spawnsOf(m);
+  mapObjs.forEach(o=>scene.remove(o));mapObjs=[];boxes=[];obst=[];padM=[];spawns=spawnsOf(m);
   scene.background=new THREE.Color(m.bg);const L=m.lit||[0xbfeee6,0x1a2a30,.95,0xfff0dd,.7];
   hemi.color.set(L[0]);hemi.groundColor.set(L[1]);hemi.intensity=L[2];sun.color.set(L[3]);sun.intensity=L[4];scene.fog=new THREE.Fog(m.bg,m.size*.4,m.size*1.5);
   const add=o=>{scene.add(o);mapObjs.push(o)},S=m.size,wh=S>50?8:5;
@@ -33,11 +33,11 @@ function loadMap(m){
   fl.rotation.x=-Math.PI/2;add(fl);
   const gr=new THREE.GridHelper(S+2,(S+2)/2,m.grid||0x38d6c4,0xffffff);gr.material.opacity=.1;gr.material.transparent=true;gr.position.y=.01;add(gr);
   const h=S/2+.5;
-  m.boxes.concat([[0,-h,S+2,1,wh,0x1b2a30],[0,h,S+2,1,wh,0x1b2a30],[-h,0,1,S+2,wh,0x1b2a30],[h,0,1,S+2,wh,0x1b2a30]]).forEach(([x,z,w,d,top,c,y0=0,gl])=>{
+  m.boxes.concat([[0,-h,S+2,1,wh,0x1b2a30],[0,h,S+2,1,wh,0x1b2a30],[-h,0,1,S+2,wh,0x1b2a30],[h,0,1,S+2,wh,0x1b2a30]]).forEach(([x,z,w,d,top,c,y0=0,gl],bi)=>{
     const b=new THREE.Mesh(new THREE.BoxGeometry(w,top-y0,d),gl?new THREE.MeshBasicMaterial({color:c}):new THREE.MeshLambertMaterial({color:c}));
-    b.position.set(x,(top+y0)/2,z);add(b);boxes.push({x,z,w:w/2,d:d/2,h:top,y0});
+    b.position.set(x,(top+y0)/2,z);add(b);if(bi<m.boxes.length)obst.push(b);boxes.push({x,z,w:w/2,d:d/2,h:top,y0});
   });
-  pads=m.pads||[];pads.forEach(([x,z,y=0])=>{const p=new THREE.Mesh(new THREE.CylinderGeometry(1.2,1.2,.12,24),new THREE.MeshBasicMaterial({color:0xffe14a}));p.position.set(x,y+.06,z);add(p)});
+  pads=m.pads||[];pads.forEach(([x,z,y=0])=>{const p=new THREE.Mesh(new THREE.CylinderGeometry(1.2,1.2,.12,24),new THREE.MeshBasicMaterial({color:0xffe14a}));p.position.set(x,y+.06,z);add(p);padM.push([p,y])});
   $('#mapname').textContent=`${m.name} (${m.label} ${S}×${S})`;
 }
 // 충돌: 한 칸 오르는 높이 STEP까지는 계단처럼 자동으로 올라가고, 그보다 높으면 막힙니다.
@@ -52,7 +52,7 @@ let mode='login',tp=false,dev=false,fly=false,nick='';const keys={};
 function spawn(){const s=spawns[Math.floor(Math.random()*spawns.length)];
   P.x=s[0];P.z=s[1];P.y=0;P.vy=0;P.pitch=0;P.yaw=s[1]>0?0:Math.PI;fly=false}
 function update(dt){
-  fireCd-=dt;if(dead)return;if(firing&&mode==='play')tryFire();
+  fireCd-=dt;if(dead)return;if((firing||auto)&&mode==='play')tryFire();
   if(keys.ArrowLeft)P.yaw+=1.9*dt; if(keys.ArrowRight)P.yaw-=1.9*dt;
   if(keys.ArrowUp)P.pitch=Math.min(1.2,P.pitch+1.5*dt); if(keys.ArrowDown)P.pitch=Math.max(-1.2,P.pitch-1.5*dt);
   const f=(keys.KeyW?1:0)-(keys.KeyS?1:0),s=(keys.KeyD?1:0)-(keys.KeyA?1:0);
@@ -119,7 +119,7 @@ function handle(m){
       if(m.phase==='weapons'){mode='weapons';myWeapon=null;paintWeapons();show('weapons');$('#wmap').textContent='선택된 맵: '+MAPS[m.map].name;$('#wcount').textContent='';
         countdown(m.secs,s=>$('#winfo').textContent=`남은 시간 ${s}초 · 무기를 골라주세요 (같은 무기를 골라도 돼요)`)}
       if(m.phase==='countdown'){mode='countdown';countdown(m.secs,s=>big(s>0?String(s):''))}
-      if(m.phase==='play'){mode='play';big('')}
+      if(m.phase==='play'){mode='play';big('');startClock(m.secs)}
       break;
     case 'votes': paintVotes(m.counts);break;
     case 'picks': $('#wcount').textContent=`${m.n}/${m.total}명 선택 완료`;break;
@@ -136,6 +136,8 @@ function handle(m){
     case 'died':{dead=true;firing=false;deadBy=m.by;spec=others[m.by]?others[m.by].mesh:null;
       clearInterval(deadI);countdown2(m.secs,s=>big('처치당했습니다',`${nickMap[m.by]||''} 님에게 · ${s}초 후 부활`,'#ff5a3c'));break}
     case 'respawn':{clearInterval(deadI);dead=false;spec=null;P.x=m.x;P.y=m.y;P.z=m.z;P.vy=0;P.pitch=0;P.yaw=m.yaw;big('');break}
+    case 'clear':removeObstacles();big('장애물이 모두 사라졌습니다!','오랫동안 킬이 나오지 않았어요');setTimeout(()=>{if(mode==='play'&&!dead)big('')},3500);break;
+    case 'result':showResult(m);break;
     case 'pong': $('#ping').textContent=`핑 ${Date.now()-m.ts}ms`;break;
   }
 }
@@ -186,7 +188,10 @@ W.forEach(w=>{
 });
 
 // ---------- 전투: 발사, 체력/탄약 표시, 킬 로그 ----------
-let hp=100,ammo={a:0,m:0,r:0},firing=false,fireCd=0,deadI=null;
+let hp=100,ammo={a:0,m:0,r:0},firing=false,fireCd=0,deadI=null,auto=false;
+function paintAuto(){const b=$('#auto');b.textContent=auto?'오토 발사 ON · G':'오토 발사 OFF · G';b.classList.toggle('on',auto)}
+function toggleAuto(){auto=!auto;paintAuto()}
+$('#auto').onclick=e=>{toggleAuto();e.currentTarget.blur()};   // 버튼에 포커스가 남아 Space(점프)가 눌리는 것 방지
 const teamMap={},nickMap={};
 const countdown2=(secs,fn)=>{let s=secs;fn(s);deadI=setInterval(()=>{s--;if(s>=0)fn(s);if(s<=0)clearInterval(deadI)},1000)};
 function paintHud(){
@@ -212,11 +217,35 @@ function killLog(k,v,head){
   while(kl.children.length>5)kl.lastChild.remove();
 }
 
+// ---------- 경기 시계 / 장애물 제거 / 결과 화면 ----------
+let clockI=null;
+function startClock(secs){clearInterval(clockI);const end=Date.now()+secs*1000;
+  const tick=()=>{const s=Math.max(0,Math.ceil((end-Date.now())/1000));$('#timer').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+  tick();clockI=setInterval(tick,250)}
+function removeObstacles(){
+  obst.forEach(o=>scene.remove(o));obst=[];boxes=boxes.slice(-4);                       // 바깥 벽 4개만 남김
+  padM.forEach(([p,y])=>{if(y>0)scene.remove(p)});pads=pads.filter(q=>!(q[2]>0));       // 위층 점프대도 함께 사라짐
+}
+function showResult(m){
+  mode='ended';firing=false;dead=false;spec=null;clearInterval(deadI);clearInterval(clockI);big('');
+  const draw=m.winner==='draw',t=$('#rtitle');
+  t.textContent=draw?'무승부':tname(m.winner)+' 승리!';t.style.color=draw?'#e8f1ee':thex(m.winner);
+  $('#rscore').textContent=`레드 ${m.red} : ${m.blue} 블루 · ${m.reason==='score'?'5킬 달성':'시간 종료'}`;
+  const tb=$('#rtable');tb.replaceChildren();
+  const row=(cells,cls)=>{const d=document.createElement('div');d.className='rrow '+(cls||'');cells.forEach((c,i)=>{const s=document.createElement('span');s.textContent=c;d.append(s)});return d};
+  tb.append(row(['닉네임','팀','킬','데스'],'h'));
+  [...m.players].sort((a,b)=>b.kills-a.kills||a.deaths-b.deaths).forEach(p=>{
+    const r=row([p.nick,tname(p.team).replace('팀',''),p.kills,p.deaths],p.id===myId?'me':'');r.children[0].style.color=thex(p.team);r.children[1].style.color=thex(p.team);tb.append(r)});
+  $('#result').style.display='flex';
+  countdown(m.secs,s=>$('#rwait').textContent=`${s}초 뒤 대기실로 이동합니다`);
+}
+
 // 라운드 시작: 팀 공개 → 카운트다운 → 경기
 function startRound(m){
   const mp=MAPS[m.map];loadMap(mp);clearOthers();
   myTeam=m.teams[myId].team;cm.color.set(tcol(myTeam));gun.material.color.set(tcol(myTeam));   // 1인칭 총도 팀 색으로
   curWeapon=W.find(x=>x.id===(m.weapons||{})[myId])||W[0];gun.scale.set(curWeapon.gun[0]/.08,curWeapon.gun[1]/.1,curWeapon.gun[2]/.5);
+  $('#result').style.display='none';clearInterval(clockI);$('#timer').textContent='3:00';paintAuto();
   hp=100;ammo={a:curWeapon.mag,m:curWeapon.mag,r:0};dead=false;spec=null;firing=false;fireCd=0;clearInterval(deadI);$('#klog').replaceChildren();
   Object.entries(m.teams).forEach(([id,t])=>{teamMap[id]=t.team;nickMap[id]=t.nick});paintHud();$('#score').replaceChildren(...scoreEls(0,0));
   const sp=m.spawns[myId];P.x=sp[0];P.z=sp[1];P.y=0;P.vy=0;P.pitch=0;P.yaw=sp[1]>0?0:Math.PI;fly=false;
@@ -230,7 +259,7 @@ function startRound(m){
   ['#help','#right','#combat'].forEach(s=>$(s).style.display='');$('#back').style.display=hostId===myId?'':'none';
 }
 function leaveGame(){mode='lobby';clearOthers();big('');clearInterval(timerI);myTeam=null;tp=false;
-  dead=false;spec=null;firing=false;clearInterval(deadI);['#help','#right','#back','#combat'].forEach(s=>$(s).style.display='none')}
+  dead=false;spec=null;firing=false;clearInterval(deadI);clearInterval(clockI);$('#result').style.display='none';['#help','#right','#back','#combat'].forEach(s=>$(s).style.display='none')}
 
 // ---------- 다른 플레이어: 위치를 받아서 부드럽게 보간 ----------
 function bodyMesh(color){
@@ -271,7 +300,7 @@ function netTick(dt){if(dead)return;sendT+=dt;if(sendT>=.05){sendT=0;send({t:'mo
 addEventListener('keydown',e=>{
   if(mode==='play'&&(e.code.startsWith('Arrow')||e.code==='Space'))e.preventDefault();
   keys[e.code]=true;
-  if(mode==='play'){if(e.code==='KeyV')tp=!tp;if(e.code==='KeyT')send({t:'reload'});if(e.code==='KeyR'||e.code==='KeyJ')firing=true;if(e.code==='KeyF'&&dev){fly=!fly;P.vy=0}}
+  if(mode==='play'){if(e.code==='KeyV')tp=!tp;if(e.code==='KeyT')send({t:'reload'});if(e.code==='KeyG'&&!e.repeat)toggleAuto();if(e.code==='KeyR'||e.code==='KeyJ')firing=true;if(e.code==='KeyF'&&dev){fly=!fly;P.vy=0}}
 });
 addEventListener('keyup',e=>{keys[e.code]=false;if(e.code==='KeyR'||e.code==='KeyJ')firing=false});
 addEventListener('resize',()=>{R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()});

@@ -2,8 +2,10 @@
 (function(){
 function create(o){
   const m=o.map,S=m.size,hh=S/2+.5,WP=o.weapons,now=o.now||Date.now,emit=(to,msg)=>o.emit(to,msg),r2=v=>+v.toFixed(2);
-  const bx=m.boxes.concat([[0,-hh,S+2,1,8],[0,hh,S+2,1,8],[-hh,0,1,S+2,8],[hh,0,1,S+2,8]])
-    .map(([x,z,w,d,top,c,y0=0])=>({a:[x-w/2,y0,z-d/2],b:[x+w/2,top,z+d/2]}));
+  const walls=[[0,-hh,S+2,1,8],[0,hh,S+2,1,8],[-hh,0,1,S+2,8],[hh,0,1,S+2,8]];
+  const conv=a=>a.map(([x,z,w,d,top,c,y0=0])=>({a:[x-w/2,y0,z-d/2],b:[x+w/2,top,z+d/2]}));
+  let bx=conv(m.boxes.concat(walls));
+  const clearObstacles=()=>{bx=conv(walls)};            // 맵 바깥 벽만 남기고 장애물을 모두 없앰
   const score={red:0,blue:0},wOf=e=>WP.find(w=>w.id===e.weapon);
 
   function rayBox(O,D){                       // 광선이 벽/상자에 처음 닿는 거리
@@ -69,6 +71,7 @@ function create(o){
     emit('all',{t:'score',red:score.red,blue:score.blue});
     emit(v,{t:'died',by:a.id,secs:5});
     o.later(5000,()=>respawn(v));
+    if(o.onKill)o.onKill(a,v,score);
     return true}
 
   function respawn(e){                         // 5초 뒤, 적에게서 먼 스폰 중 무작위
@@ -85,7 +88,7 @@ function create(o){
     e.reloadUntil=t+w.reload*1000;emit(e,{t:'ammo',a:e.ammo,m:w.mag,r:1});
     o.later(w.reload*1000,()=>{if(e.alive&&e.reloadUntil&&now()>=e.reloadUntil-5){e.ammo=w.mag;e.reloadUntil=0;emit(e,{t:'ammo',a:w.mag,m:w.mag,r:0})}})}
 
-  return{score,start,shoot,reload,flags,respawn}
+  return{score,start,shoot,reload,flags,respawn,clearObstacles}
 }
 const api={create};
 if(typeof module!=='undefined')module.exports=api;else window.Combat=api;
