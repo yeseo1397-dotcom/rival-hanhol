@@ -5,6 +5,7 @@ const W=window.WEAPONS;
 const cfgUrl=(window.ARENA_CONFIG&&ARENA_CONFIG.SERVER_URL)||'';
 const others={};   // 다른 플레이어 (렌더 루프가 바로 쓰므로 맨 위에 선언)
 let spec=null,dead=false,deadBy=null;const tracers=[];
+let sens=1;try{sens=+localStorage.getItem('arena.sens')||1}catch(e){}   // 감도 (저장됨)
 const WS_URL=cfgUrl||((location.protocol==='https:'?'wss://':'ws://')+location.host);
 
 // ---------- 3D ----------
@@ -53,8 +54,8 @@ function spawn(){const s=spawns[Math.floor(Math.random()*spawns.length)];
   P.x=s[0];P.z=s[1];P.y=0;P.vy=0;P.pitch=0;P.yaw=s[1]>0?0:Math.PI;fly=false}
 function update(dt){
   fireCd-=dt;if(dead)return;if((firing||auto)&&mode==='play')tryFire();
-  if(keys.ArrowLeft)P.yaw+=1.9*dt; if(keys.ArrowRight)P.yaw-=1.9*dt;
-  if(keys.ArrowUp)P.pitch=Math.min(1.2,P.pitch+1.5*dt); if(keys.ArrowDown)P.pitch=Math.max(-1.2,P.pitch-1.5*dt);
+  if(keys.ArrowLeft)P.yaw+=1.9*sens*dt; if(keys.ArrowRight)P.yaw-=1.9*sens*dt;
+  if(keys.ArrowUp)P.pitch=Math.min(1.2,P.pitch+1.5*sens*dt); if(keys.ArrowDown)P.pitch=Math.max(-1.2,P.pitch-1.5*sens*dt);
   const f=(keys.KeyW?1:0)-(keys.KeyS?1:0),s=(keys.KeyD?1:0)-(keys.KeyA?1:0);
   let mx=-Math.sin(P.yaw)*f+Math.cos(P.yaw)*s,mz=-Math.cos(P.yaw)*f-Math.sin(P.yaw)*s;
   const l=Math.hypot(mx,mz)||1,v=(fly?12:7)*dt;mx=mx/l*v;mz=mz/l*v;
@@ -71,7 +72,7 @@ function render(){
   cam.rotation.set(P.pitch,P.yaw,0);cam.position.set(P.x,P.y+1.6,P.z);
   if(tp){const back=new THREE.Vector3(0,0,1).applyEuler(cam.rotation);cam.position.addScaledVector(back,4);cam.position.y=Math.max(.4,cam.position.y+.3)}
   char.visible=tp;gun.visible=!tp;char.position.set(P.x,P.y,P.z);char.rotation.y=P.yaw;
-  if(dead){char.visible=false;gun.visible=false;if(spec){cam.position.set(spec.position.x,spec.position.y+1.6,spec.position.z);cam.rotation.set(0,spec.rotation.y,0)}}   // 사망 중엔 나를 처치한 사람 시점
+  if(dead){char.visible=false;gun.visible=false;{const sm=pickSpec();if(sm){cam.position.set(sm.position.x,sm.position.y+1.6,sm.position.z);cam.rotation.set(0,sm.rotation.y,0)}}}   // 사망 중엔 나를 처치한 사람 시점
   R.render(scene,cam);
 }
 let last=performance.now();
@@ -110,7 +111,7 @@ function handle(m){
     case 'err': $('#err').textContent=m.msg;show('login');break;
     case 'welcome':{myId=m.id;dev=m.dev;nick=m.nick;joined=true;break}
     case 'lobby':{
-      lobbyList=m.players;hostId=m.host;gPhase=m.phase;
+      lobbyList=m.players;hostId=m.host;gPhase=m.phase;inSolo=!!m.solo;
       const meP=lobbyList.find(p=>p.id===myId)||{};
       if(m.phase==='lobby'){leaveGame();show('lobby')}else if(!meP.inGame)show('lobby');
       renderLobby();break}
@@ -118,8 +119,8 @@ function handle(m){
       if(m.phase==='vote'){mode='vote';myVote=-1;paintVotes(MAPS.map(()=>0));show('vote');countdown(m.secs,s=>$('#vinfo').textContent=`남은 시간 ${s}초`)}
       if(m.phase==='weapons'){mode='weapons';myWeapon=null;paintWeapons();show('weapons');$('#wmap').textContent='선택된 맵: '+MAPS[m.map].name;$('#wcount').textContent='';
         countdown(m.secs,s=>$('#winfo').textContent=`남은 시간 ${s}초 · 무기를 골라주세요 (같은 무기를 골라도 돼요)`)}
-      if(m.phase==='countdown'){mode='countdown';countdown(m.secs,s=>big(s>0?String(s):''))}
-      if(m.phase==='play'){mode='play';big('');startClock(m.secs)}
+      if(m.phase==='countdown'){mode='countdown';roundNo=m.round;totalRounds=m.total;setWins(m.wins);clearInterval(clockI);$('#timer').textContent=`라운드 ${roundNo}/${totalRounds}`;countdown(m.secs,s=>big(s>0?String(s):'',`라운드 ${m.round}`))}
+      if(m.phase==='play'){mode='play';big('');roundNo=m.round;totalRounds=m.total;setWins(m.wins);startClock(m.secs)}
       break;
     case 'votes': paintVotes(m.counts);break;
     case 'picks': $('#wcount').textContent=`${m.n}/${m.total}명 선택 완료`;break;
@@ -129,13 +130,13 @@ function handle(m){
     case 'shot':{const mine=m.id===myId,from=mine?[P.x,P.y+1.4,P.z]:[m.from[0],m.from[1]-.3,m.from[2]];
       m.ends.forEach(e=>addTracer(from,e,m.team==='red'?0xff9a7a:0x9af2e8));break}
     case 'hit':{const c=$('#ch');c.classList.add('hit');c.classList.toggle('hs',!!m.head);setTimeout(()=>c.classList.remove('hit','hs'),m.kill?220:100);break}
-    case 'hp':hp=m.hp;paintHud();if(m.dmg>0){$('#dmg').style.opacity=1;setTimeout(()=>$('#dmg').style.opacity=0,120)}break;
+    case 'hp':hp=m.hp;if(m.max)maxHp=m.max;paintHud();if(m.dmg>0){$('#dmg').style.opacity=1;setTimeout(()=>$('#dmg').style.opacity=0,120)}break;
     case 'ammo':ammo={a:m.a,m:m.m,r:m.r};paintHud();break;
-    case 'score':$('#score').replaceChildren(...scoreEls(m.red,m.blue));break;
+    case 'roundend':roundEnd(m);break;
     case 'kill':killLog(m.k,m.v,m.head);break;
-    case 'died':{dead=true;firing=false;deadBy=m.by;spec=others[m.by]?others[m.by].mesh:null;
-      clearInterval(deadI);countdown2(m.secs,s=>big('처치당했습니다',`${nickMap[m.by]||''} 님에게 · ${s}초 후 부활`,'#ff5a3c'));break}
-    case 'respawn':{clearInterval(deadI);dead=false;spec=null;P.x=m.x;P.y=m.y;P.z=m.z;P.vy=0;P.pitch=0;P.yaw=m.yaw;big('');break}
+    case 'died':{dead=true;firing=false;deadBy=m.by;clearInterval(deadI);paintAlive();
+      big('처치당했습니다',`${nickMap[m.by]||''} 님에게 · 이번 라운드가 끝날 때까지 관전해요`,'#ff5a3c');break}
+    case 'respawn':{clearInterval(deadI);dead=false;spec=null;P.x=m.x;P.y=m.y;P.z=m.z;P.vy=0;P.pitch=0;P.yaw=m.yaw;fireCd=0;big('');paintAlive();break}
     case 'clear':removeObstacles();big('장애물이 모두 사라졌습니다!','오랫동안 킬이 나오지 않았어요');setTimeout(()=>{if(mode==='play'&&!dead)big('')},3500);break;
     case 'result':showResult(m);break;
     case 'pong': $('#ping').textContent=`핑 ${Date.now()-m.ts}ms`;break;
@@ -149,6 +150,9 @@ function renderLobby(){
   $('#start').style.display=host&&!playing?'':'none';const solo=lobbyList.length===1&&lobbyList[0].dev,ok=lobbyList.length>=2||solo;$('#start').disabled=!ok;
   $('#lmsg').textContent=playing?'경기가 진행 중입니다. 끝나면 대기실에서 함께해요.':
     host?(solo?'개발자 모드: 혼자서도 시작할 수 있어요.':ok?'모두 모였으면 시작하세요.':'최소 2명이 필요합니다.'):'방장이 시작하기를 기다리는 중...';
+  if(inSolo)$('#lmsg').textContent='연습방: 다른 사람과 상관없이 혼자 연습해요. 연습용 표적 3개가 나옵니다.';
+  $('#lobby h1').textContent=inSolo?'연습방 (개발자)':'대기실';
+  $('#solo').style.display=dev&&!inSolo?'':'none';$('#tomain').style.display=inSolo?'':'none';
 }
 
 // 맵 투표 카드 (미리보기 + 서버가 보내주는 득표수)
@@ -188,14 +192,14 @@ W.forEach(w=>{
 });
 
 // ---------- 전투: 발사, 체력/탄약 표시, 킬 로그 ----------
-let hp=100,ammo={a:0,m:0,r:0},firing=false,fireCd=0,deadI=null,auto=false;
-function paintAuto(){const b=$('#auto');b.textContent=auto?'오토 발사 ON · G':'오토 발사 OFF · G';b.classList.toggle('on',auto)}
+let hp=100,ammo={a:0,m:0,r:0},firing=false,fireCd=0,deadI=null,auto=false,maxHp=150,inSolo=false,roundNo=0,totalRounds=5;
+function paintAuto(){const b=$('#auto');b.textContent=auto?'오토 발사 ON · G':'오토 발사 OFF · G';b.classList.toggle('on',auto);$('#autoset').checked=auto}
 function toggleAuto(){auto=!auto;paintAuto()}
 $('#auto').onclick=e=>{toggleAuto();e.currentTarget.blur()};   // 버튼에 포커스가 남아 Space(점프)가 눌리는 것 방지
 const teamMap={},nickMap={};
 const countdown2=(secs,fn)=>{let s=secs;fn(s);deadI=setInterval(()=>{s--;if(s>=0)fn(s);if(s<=0)clearInterval(deadI)},1000)};
 function paintHud(){
-  $('#hpnum').textContent=Math.max(0,Math.ceil(hp));$('#hpbar i').style.width=Math.max(0,hp)+'%';
+  $('#hpnum').textContent=Math.max(0,Math.ceil(hp));$('#hpbar i').style.width=Math.max(0,hp/maxHp*100)+'%';
   $('#ammo').textContent=ammo.r?'재장전...':`${ammo.a} / ${ammo.m}`;
 }
 function scoreEls(r,b){const x=document.createElement('span'),y=document.createElement('span');
@@ -220,7 +224,7 @@ function killLog(k,v,head){
 // ---------- 경기 시계 / 장애물 제거 / 결과 화면 ----------
 let clockI=null;
 function startClock(secs){clearInterval(clockI);const end=Date.now()+secs*1000;
-  const tick=()=>{const s=Math.max(0,Math.ceil((end-Date.now())/1000));$('#timer').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+  const tick=()=>{const s=Math.max(0,Math.ceil((end-Date.now())/1000));$('#timer').textContent=`라운드 ${roundNo}/${totalRounds} · `+Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
   tick();clockI=setInterval(tick,250)}
 function removeObstacles(){
   obst.forEach(o=>scene.remove(o));obst=[];boxes=boxes.slice(-4);                       // 바깥 벽 4개만 남김
@@ -230,24 +234,54 @@ function showResult(m){
   mode='ended';firing=false;dead=false;spec=null;clearInterval(deadI);clearInterval(clockI);big('');
   const draw=m.winner==='draw',t=$('#rtitle');
   t.textContent=draw?'무승부':tname(m.winner)+' 승리!';t.style.color=draw?'#e8f1ee':thex(m.winner);
-  $('#rscore').textContent=`레드 ${m.red} : ${m.blue} 블루 · ${m.reason==='score'?'5킬 달성':'시간 종료'}`;
+  $('#rscore').textContent=`레드 ${m.red} : ${m.blue} 블루 · 라운드 승리 수`;
+  $('#rrounds').textContent=m.rounds.map((w,i)=>`R${i+1} ${w==='draw'?'무':w==='red'?'레드':'블루'}`).join('   ·   ');
   const tb=$('#rtable');tb.replaceChildren();
-  const row=(cells,cls)=>{const d=document.createElement('div');d.className='rrow '+(cls||'');cells.forEach((c,i)=>{const s=document.createElement('span');s.textContent=c;d.append(s)});return d};
-  tb.append(row(['닉네임','팀','킬','데스'],'h'));
+  const row=(cells,cls)=>{const d=document.createElement('div');d.className='rrow '+(cls||'');cells.forEach(c=>{const s=document.createElement('span');s.textContent=c;d.append(s)});return d};
+  tb.append(row(['닉네임','팀','킬','데스','헤드샷','피해량'],'h'));
   [...m.players].sort((a,b)=>b.kills-a.kills||a.deaths-b.deaths).forEach(p=>{
-    const r=row([p.nick,tname(p.team).replace('팀',''),p.kills,p.deaths],p.id===myId?'me':'');r.children[0].style.color=thex(p.team);r.children[1].style.color=thex(p.team);tb.append(r)});
+    const r=row([p.nick,tname(p.team).replace('팀',''),p.kills,p.deaths,p.heads,p.dmg],p.id===myId?'me':'');
+    r.children[0].style.color=thex(p.team);r.children[1].style.color=thex(p.team);tb.append(r)});
   $('#result').style.display='flex';
   countdown(m.secs,s=>$('#rwait').textContent=`${s}초 뒤 대기실로 이동합니다`);
 }
+
+// ---------- 라운드 표시 / 관전 / 설정창 / 터치로 시점 돌리기 ----------
+function setWins(w){const [x,sp,y]=scoreEls(w.red,w.blue);x.classList.toggle('mine',myTeam==='red');y.classList.toggle('mine',myTeam==='blue');$('#score').replaceChildren(x,sp,y)}
+function paintAlive(){let r=0,b=0;const add=t=>t==='red'?r++:b++;if(!dead&&myTeam)add(myTeam);
+  for(const id in others)if(others[id].alive!==false)add(teamMap[id]);$('#alive').textContent=`생존 ${r} : ${b}`}
+function pickSpec(){const al=Object.entries(others).filter(([id,o])=>o.alive!==false);
+  const f=al.find(([id])=>+id===deadBy)||al.find(([id])=>teamMap[id]===myTeam)||al[0];return f?f[1].mesh:null}
+function roundEnd(m){
+  mode='roundend';firing=false;clearInterval(clockI);setWins(m.wins);
+  const draw=m.winner==='draw',why={wipe:'상대팀을 모두 처치했어요',alive:'시간 종료 · 생존 인원이 더 많아요',hp:'시간 종료 · 남은 체력이 더 많아요',draw:'시간 종료 · 무승부'}[m.reason]||'';
+  big(`라운드 ${m.n} · ${draw?'무승부':tname(m.winner)+' 승리'}`,`${why}   (레드 ${m.wins.red} : ${m.wins.blue} 블루)`,draw?'#e8f1ee':thex(m.winner));
+}
+const setOpen=v=>{$('#settings').style.display=v?'flex':'none'};
+$('#gear').onclick=e=>{setOpen($('#settings').style.display!=='flex');e.currentTarget.blur()};
+$('#setclose').onclick=()=>setOpen(false);
+$('#sens').value=sens;$('#sensval').textContent=sens.toFixed(1);
+$('#sens').addEventListener('input',e=>{sens=+e.target.value;$('#sensval').textContent=sens.toFixed(1);try{localStorage.setItem('arena.sens',sens)}catch(err){}});
+$('#sens').addEventListener('change',e=>e.target.blur());
+$('#autoset').onchange=e=>{auto=e.target.checked;paintAuto();e.target.blur()};
+$('#tpset').onchange=e=>{tp=e.target.checked;e.target.blur()};
+$('#solo').onclick=()=>send({t:'solo'});$('#tomain').onclick=()=>send({t:'tomain'});
+let touchId=null,tx=0,ty=0;const cvs=R.domElement;                 // 화면을 손가락으로 끌어 시점 돌리기 (감도 설정 적용)
+cvs.addEventListener('touchstart',e=>{if(touchId!==null||mode!=='play'||dead)return;const t=e.changedTouches[0];touchId=t.identifier;tx=t.clientX;ty=t.clientY;e.preventDefault()},{passive:false});
+cvs.addEventListener('touchmove',e=>{for(const t of e.changedTouches)if(t.identifier===touchId){
+  if(mode==='play'&&!dead){P.yaw-=(t.clientX-tx)*.0045*sens;P.pitch=Math.max(-1.2,Math.min(1.2,P.pitch-(t.clientY-ty)*.0045*sens))}
+  tx=t.clientX;ty=t.clientY;e.preventDefault()}},{passive:false});
+const endT=e=>{for(const t of e.changedTouches)if(t.identifier===touchId)touchId=null};
+cvs.addEventListener('touchend',endT);cvs.addEventListener('touchcancel',endT);
 
 // 라운드 시작: 팀 공개 → 카운트다운 → 경기
 function startRound(m){
   const mp=MAPS[m.map];loadMap(mp);clearOthers();
   myTeam=m.teams[myId].team;cm.color.set(tcol(myTeam));gun.material.color.set(tcol(myTeam));   // 1인칭 총도 팀 색으로
   curWeapon=W.find(x=>x.id===(m.weapons||{})[myId])||W[0];gun.scale.set(curWeapon.gun[0]/.08,curWeapon.gun[1]/.1,curWeapon.gun[2]/.5);
-  $('#result').style.display='none';clearInterval(clockI);$('#timer').textContent='3:00';paintAuto();
-  hp=100;ammo={a:curWeapon.mag,m:curWeapon.mag,r:0};dead=false;spec=null;firing=false;fireCd=0;clearInterval(deadI);$('#klog').replaceChildren();
-  Object.entries(m.teams).forEach(([id,t])=>{teamMap[id]=t.team;nickMap[id]=t.nick});paintHud();$('#score').replaceChildren(...scoreEls(0,0));
+  $('#result').style.display='none';clearInterval(clockI);$('#timer').textContent='라운드 1/'+(m.rounds||5);roundNo=1;totalRounds=m.rounds||5;paintAuto();
+  maxHp=m.maxHp||150;hp=maxHp;ammo={a:curWeapon.mag,m:curWeapon.mag,r:0};dead=false;spec=null;firing=false;fireCd=0;clearInterval(deadI);$('#klog').replaceChildren();
+  Object.entries(m.teams).forEach(([id,t])=>{teamMap[id]=t.team;nickMap[id]=t.nick});paintHud();setWins({red:0,blue:0});
   const sp=m.spawns[myId];P.x=sp[0];P.z=sp[1];P.y=0;P.vy=0;P.pitch=0;P.yaw=sp[1]>0?0:Math.PI;fly=false;
   Object.entries(m.teams).forEach(([id,t])=>{if(+id!==myId)others[id]=makeOther(+id,t.team,t.nick,m.spawns[id])});
   const names=t=>Object.values(m.teams).filter(x=>x.team===t).map(x=>x.nick).join(', ');
@@ -256,10 +290,10 @@ function startRound(m){
   $('#mapname').append(document.createElement('br'),document.createTextNode('무기: '+curWeapon.name));
   const me=$('#me');me.replaceChildren(document.createTextNode(nick+' · '+tname(myTeam)));me.style.color=thex(myTeam);
   if(dev){const b=document.createElement('i');b.className='badge';b.textContent='개발자';me.append(b)}
-  ['#help','#right','#combat'].forEach(s=>$(s).style.display='');$('#back').style.display=hostId===myId?'':'none';
+  paintAlive();['#help','#right','#combat'].forEach(s=>$(s).style.display='');$('#back').style.display=hostId===myId?'':'none';
 }
 function leaveGame(){mode='lobby';clearOthers();big('');clearInterval(timerI);myTeam=null;tp=false;
-  dead=false;spec=null;firing=false;clearInterval(deadI);clearInterval(clockI);$('#result').style.display='none';['#help','#right','#back','#combat'].forEach(s=>$(s).style.display='none')}
+  dead=false;spec=null;firing=false;clearInterval(deadI);clearInterval(clockI);$('#result').style.display='none';$('#settings').style.display='none';['#help','#right','#back','#combat'].forEach(s=>$(s).style.display='none')}
 
 // ---------- 다른 플레이어: 위치를 받아서 부드럽게 보간 ----------
 function bodyMesh(color){
@@ -286,6 +320,7 @@ function clearOthers(){for(const k in others){scene.remove(others[k].mesh);delet
 function applyState(list){
   for(const [id,x,y,z,yaw,f] of list){const o=others[id];if(o){o.tx=x;o.ty=y;o.tz=z;o.tyaw=yaw;o.alive=!!(f&1);o.inv=!!(f&2)}}
   for(const k in others)if(!list.some(p=>p[0]==k)){scene.remove(others[k].mesh);delete others[k]}   // 나간 사람 제거
+  paintAlive();
 }
 function updateOthers(dt){
   const k=Math.min(1,dt*12);
@@ -300,7 +335,7 @@ function netTick(dt){if(dead)return;sendT+=dt;if(sendT>=.05){sendT=0;send({t:'mo
 addEventListener('keydown',e=>{
   if(mode==='play'&&(e.code.startsWith('Arrow')||e.code==='Space'))e.preventDefault();
   keys[e.code]=true;
-  if(mode==='play'){if(e.code==='KeyV')tp=!tp;if(e.code==='KeyT')send({t:'reload'});if(e.code==='KeyG'&&!e.repeat)toggleAuto();if(e.code==='KeyR'||e.code==='KeyJ')firing=true;if(e.code==='KeyF'&&dev){fly=!fly;P.vy=0}}
+  if(mode==='play'){if(e.code==='KeyV'){tp=!tp;$('#tpset').checked=tp}if(e.code==='KeyT')send({t:'reload'});if(e.code==='KeyG'&&!e.repeat)toggleAuto();if(e.code==='KeyR'||e.code==='KeyJ')firing=true;if(e.code==='KeyF'&&dev){fly=!fly;P.vy=0}}
 });
 addEventListener('keyup',e=>{keys[e.code]=false;if(e.code==='KeyR'||e.code==='KeyJ')firing=false});
 addEventListener('resize',()=>{R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()});

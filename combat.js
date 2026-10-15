@@ -6,6 +6,7 @@ function create(o){
   const conv=a=>a.map(([x,z,w,d,top,c,y0=0])=>({a:[x-w/2,y0,z-d/2],b:[x+w/2,top,z+d/2]}));
   let bx=conv(m.boxes.concat(walls));
   const clearObstacles=()=>{bx=conv(walls)};            // 맵 바깥 벽만 남기고 장애물을 모두 없앰
+  const MAXHP=o.maxHp||150;
   const score={red:0,blue:0},wOf=e=>WP.find(w=>w.id===e.weapon);
 
   function rayBox(O,D){                       // 광선이 벽/상자에 처음 닿는 거리
@@ -28,12 +29,11 @@ function create(o){
     if(ts!==null&&(tc===null||ts<=tc))return{t:ts,head:true};
     return{t:tc,head:false}}
 
-  function init(e){const w=wOf(e);Object.assign(e,{hp:100,alive:true,inv:0,kills:0,deaths:0,cd:0,reloadUntil:0,ammo:w?w.mag:0})}
+  function init(e){const w=wOf(e);Object.assign(e,{hp:MAXHP,alive:true,inv:0,kills:0,deaths:0,heads:0,dmg:0,cd:0,reloadUntil:0,ammo:w?w.mag:0})}
   const flags=e=>(e.alive?1:0)|(now()<e.inv?2:0);
   function start(){
     o.ents().forEach(init);
-    o.ents().forEach(e=>{const w=wOf(e);if(w)emit(e,{t:'ammo',a:w.mag,m:w.mag,r:0})});
-    emit('all',{t:'score',red:0,blue:0})}
+    o.ents().forEach(e=>{const w=wOf(e);emit(e,{t:'hp',hp:MAXHP,max:MAXHP,dmg:0});if(w)emit(e,{t:'ammo',a:w.mag,m:w.mag,r:0})})}
 
   function shoot(e,msg){
     const w=wOf(e),t=now();
@@ -64,13 +64,12 @@ function create(o){
     return true}
 
   function damage(a,v,d,head){
-    v.hp-=d;emit(v,{t:'hp',hp:Math.max(0,v.hp),dmg:d});
+    a.dmg+=Math.min(d,v.hp);v.hp-=d;emit(v,{t:'hp',hp:Math.max(0,v.hp),max:MAXHP,dmg:d});
     if(v.hp>0)return false;
-    v.alive=false;v.hp=0;v.deaths++;a.kills++;score[a.team]++;
+    v.alive=false;v.hp=0;v.deaths++;a.kills++;if(head)a.heads++;score[a.team]++;
     emit('all',{t:'kill',k:a.id,v:v.id,head:head?1:0});
-    emit('all',{t:'score',red:score.red,blue:score.blue});
-    emit(v,{t:'died',by:a.id,secs:5});
-    o.later(5000,()=>respawn(v));
+    emit(v,{t:'died',by:a.id,secs:0});                       // 녹아웃: 이번 라운드가 끝날 때까지 부활하지 않음
+    if(o.respawnMs>0)o.later(o.respawnMs,()=>respawn(v));
     if(o.onKill)o.onKill(a,v,score);
     return true}
 
@@ -78,9 +77,13 @@ function create(o){
     const foes=o.ents().filter(v=>v!==e&&v.alive&&v.team!==e.team);
     const ranked=o.spawns.map(s=>[foes.length?Math.min(...foes.map(v=>Math.hypot(v.x-s[0],v.z-s[1]))):0,s]).sort((p,q)=>q[0]-p[0]);
     const s=ranked[Math.floor(Math.random()*Math.min(3,ranked.length))][1],w=wOf(e);
-    Object.assign(e,{x:s[0],y:0,z:s[1],yaw:s[1]>0?0:Math.PI,hp:100,alive:true,inv:now()+2000,ammo:w?w.mag:0,reloadUntil:0});
-    emit(e,{t:'respawn',x:e.x,y:0,z:e.z,yaw:e.yaw});emit(e,{t:'hp',hp:100,dmg:0});
+    Object.assign(e,{x:s[0],y:0,z:s[1],yaw:s[1]>0?0:Math.PI,hp:MAXHP,alive:true,inv:now()+2000,ammo:w?w.mag:0,reloadUntil:0});
+    emit(e,{t:'respawn',x:e.x,y:0,z:e.z,yaw:e.yaw});emit(e,{t:'hp',hp:MAXHP,max:MAXHP,dmg:0});
     if(w)emit(e,{t:'ammo',a:w.mag,m:w.mag,r:0})}
+
+  function resetRound(){                       // 새 라운드: 전원 체력/탄약 회복 (위치는 서버가 미리 지정)
+    o.ents().forEach(e=>{const w=wOf(e);Object.assign(e,{hp:MAXHP,alive:true,inv:0,cd:0,reloadUntil:0,ammo:w?w.mag:0});
+      emit(e,{t:'respawn',x:e.x,y:0,z:e.z,yaw:e.yaw});emit(e,{t:'hp',hp:MAXHP,max:MAXHP,dmg:0});if(w)emit(e,{t:'ammo',a:w.mag,m:w.mag,r:0})})}
 
   function reload(e){
     const w=wOf(e),t=now();
@@ -88,7 +91,7 @@ function create(o){
     e.reloadUntil=t+w.reload*1000;emit(e,{t:'ammo',a:e.ammo,m:w.mag,r:1});
     o.later(w.reload*1000,()=>{if(e.alive&&e.reloadUntil&&now()>=e.reloadUntil-5){e.ammo=w.mag;e.reloadUntil=0;emit(e,{t:'ammo',a:w.mag,m:w.mag,r:0})}})}
 
-  return{score,start,shoot,reload,flags,respawn,clearObstacles}
+  return{score,start,shoot,reload,flags,respawn,resetRound,clearObstacles}
 }
 const api={create};
 if(typeof module!=='undefined')module.exports=api;else window.Combat=api;
