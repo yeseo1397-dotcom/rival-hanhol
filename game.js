@@ -5,6 +5,7 @@ const W=window.WEAPONS;
 const cfgUrl=(window.ARENA_CONFIG&&ARENA_CONFIG.SERVER_URL)||'';
 const others={};   // 다른 플레이어 (렌더 루프가 바로 쓰므로 맨 위에 선언)
 let spec=null,dead=false,deadBy=null;const tracers=[];
+const joy={x:0,y:0};   // 모바일 조이스틱 값 (-1~1)
 let sens=1;try{sens=+localStorage.getItem('arena.sens')||1}catch(e){}   // 감도 (저장됨)
 const WS_URL=cfgUrl||((location.protocol==='https:'?'wss://':'ws://')+location.host);
 
@@ -53,12 +54,12 @@ let mode='login',tp=false,dev=false,fly=false,nick='';const keys={};
 function spawn(){const s=spawns[Math.floor(Math.random()*spawns.length)];
   P.x=s[0];P.z=s[1];P.y=0;P.vy=0;P.pitch=0;P.yaw=s[1]>0?0:Math.PI;fly=false}
 function update(dt){
-  fireCd-=dt;if(dead)return;if((firing||auto)&&mode==='play')tryFire();
+  fireCd-=dt;if(dead)return;if((firing||(auto&&crosshairOnEnemy()))&&mode==='play')tryFire();
   if(keys.ArrowLeft)P.yaw+=1.9*sens*dt; if(keys.ArrowRight)P.yaw-=1.9*sens*dt;
   if(keys.ArrowUp)P.pitch=Math.min(1.2,P.pitch+1.5*sens*dt); if(keys.ArrowDown)P.pitch=Math.max(-1.2,P.pitch-1.5*sens*dt);
-  const f=(keys.KeyW?1:0)-(keys.KeyS?1:0),s=(keys.KeyD?1:0)-(keys.KeyA?1:0);
+  const f=(keys.KeyW?1:0)-(keys.KeyS?1:0)+joy.y,s=(keys.KeyD?1:0)-(keys.KeyA?1:0)+joy.x;
   let mx=-Math.sin(P.yaw)*f+Math.cos(P.yaw)*s,mz=-Math.cos(P.yaw)*f-Math.sin(P.yaw)*s;
-  const l=Math.hypot(mx,mz)||1,v=(fly?12:7)*dt;mx=mx/l*v;mz=mz/l*v;
+  const l=Math.hypot(mx,mz)||1,v=(fly?12:7)*dt*Math.min(1,l);mx=mx/l*v;mz=mz/l*v;   // 조이스틱은 살짝 밀면 천천히
   if(fly){P.x+=mx;P.z+=mz;P.y=Math.max(0,P.y+((keys.Space?1:0)-(keys.ShiftLeft?1:0))*10*dt);return}
   if(!blocked(P.x+mx,P.z,P.y,.35))P.x+=mx;
   if(!blocked(P.x,P.z+mz,P.y,.35))P.z+=mz;
@@ -130,7 +131,7 @@ function handle(m){
     case 'shot':{const mine=m.id===myId,from=mine?[P.x,P.y+1.4,P.z]:[m.from[0],m.from[1]-.3,m.from[2]];
       m.ends.forEach(e=>addTracer(from,e,m.team==='red'?0xff9a7a:0x9af2e8));break}
     case 'hit':{const c=$('#ch');c.classList.add('hit');c.classList.toggle('hs',!!m.head);setTimeout(()=>c.classList.remove('hit','hs'),m.kill?220:100);break}
-    case 'hp':hp=m.hp;if(m.max)maxHp=m.max;paintHud();if(m.dmg>0){$('#dmg').style.opacity=1;setTimeout(()=>$('#dmg').style.opacity=0,120)}break;
+    case 'hp':hp=m.hp;if(m.max)maxHp=m.max;paintHud();if(m.dmg>0){if(navigator.vibrate)navigator.vibrate(40);$('#dmg').style.opacity=1;setTimeout(()=>$('#dmg').style.opacity=0,120)}break;
     case 'ammo':ammo={a:m.a,m:m.m,r:m.r};paintHud();break;
     case 'roundend':roundEnd(m);break;
     case 'kill':killLog(m.k,m.v,m.head);break;
@@ -193,9 +194,25 @@ W.forEach(w=>{
 
 // ---------- 전투: 발사, 체력/탄약 표시, 킬 로그 ----------
 let hp=100,ammo={a:0,m:0,r:0},firing=false,fireCd=0,deadI=null,auto=false,maxHp=150,inSolo=false,roundNo=0,totalRounds=5;
-function paintAuto(){const b=$('#auto');b.textContent=auto?'오토 발사 ON · G':'오토 발사 OFF · G';b.classList.toggle('on',auto);$('#autoset').checked=auto}
+function paintAuto(){$('#autoset').checked=auto}
 function toggleAuto(){auto=!auto;paintAuto()}
-$('#auto').onclick=e=>{toggleAuto();e.currentTarget.blur()};   // 버튼에 포커스가 남아 Space(점프)가 눌리는 것 방지
+// 오토 발사: 내 조준점(화면 가운데)에 상대가 들어왔을 때만 자동으로 발사. 벽/장애물에 가려진 상대는 해당하지 않음
+function rayEnt(O,D,x,y,z){let best=null;const ox=O[0]-x,oz=O[2]-z,a=D[0]*D[0]+D[2]*D[2];
+  if(a>1e-9){const b=2*(ox*D[0]+oz*D[2]),c=ox*ox+oz*oz-.25,disc=b*b-4*a*c;
+    if(disc>=0){const sq=Math.sqrt(disc);for(const t of [(-b-sq)/(2*a),(-b+sq)/(2*a)])if(t>0){const yy=O[1]+D[1]*t;if(yy>=y&&yy<=y+1.45){best=t;break}}}}
+  const sx=O[0]-x,sy=O[1]-(y+1.65),sz=O[2]-z,b2=sx*D[0]+sy*D[1]+sz*D[2],d2=b2*b2-(sx*sx+sy*sy+sz*sz-.1225);
+  if(d2>=0){const t=-b2-Math.sqrt(d2);if(t>0&&(best===null||t<best))best=t}
+  return best}
+function crosshairOnEnemy(){
+  const cp=Math.cos(P.pitch),D=[-Math.sin(P.yaw)*cp,Math.sin(P.pitch),-Math.cos(P.yaw)*cp],O=[P.x,P.y+1.6,P.z];
+  let tw=Infinity;
+  for(const b of boxes){const lo=[b.x-b.w,b.y0,b.z-b.d],hi=[b.x+b.w,b.h,b.z+b.d];let t0=0,t1=Infinity,ok=true;
+    for(let i=0;i<3&&ok;i++){if(Math.abs(D[i])<1e-9){if(O[i]<lo[i]||O[i]>hi[i])ok=false}
+      else{let u=(lo[i]-O[i])/D[i],v=(hi[i]-O[i])/D[i];if(u>v)[u,v]=[v,u];t0=Math.max(t0,u);t1=Math.min(t1,v);if(t0>t1)ok=false}}
+    if(ok&&t0<tw)tw=t0}
+  for(const id in others){const o=others[id];if(o.alive===false||teamMap[id]===myTeam)continue;
+    const e=o.mesh.position,t=rayEnt(O,D,e.x,e.y,e.z);if(t!==null&&t<tw)return true}
+  return false}
 const teamMap={},nickMap={};
 const countdown2=(secs,fn)=>{let s=secs;fn(s);deadI=setInterval(()=>{s--;if(s>=0)fn(s);if(s<=0)clearInterval(deadI)},1000)};
 function paintHud(){
@@ -257,15 +274,38 @@ function roundEnd(m){
   const draw=m.winner==='draw',why={wipe:'상대팀을 모두 처치했어요',alive:'시간 종료 · 생존 인원이 더 많아요',hp:'시간 종료 · 남은 체력이 더 많아요',draw:'시간 종료 · 무승부'}[m.reason]||'';
   big(`라운드 ${m.n} · ${draw?'무승부':tname(m.winner)+' 승리'}`,`${why}   (레드 ${m.wins.red} : ${m.wins.blue} 블루)`,draw?'#e8f1ee':thex(m.winner));
 }
-const setOpen=v=>{$('#settings').style.display=v?'flex':'none'};
-$('#gear').onclick=e=>{setOpen($('#settings').style.display!=='flex');e.currentTarget.blur()};
-$('#setclose').onclick=()=>setOpen(false);
+const panels={settings:'#settings',guide:'#guide'};      // 왼쪽 위 '설명' / '설정' 창 (하나가 열리면 다른 하나는 닫힘)
+const closePanels=()=>{for(const k in panels)$(panels[k]).style.display='none'};
+function openPanel(name){const open=$(panels[name]).style.display==='flex';closePanels();if(!open)$(panels[name]).style.display='flex'}
+$('#gear').onclick=e=>{openPanel('settings');e.currentTarget.blur()};
+$('#helpbtn').onclick=e=>{openPanel('guide');e.currentTarget.blur()};
+$('#setclose').onclick=closePanels;$('#guideclose').onclick=closePanels;
 $('#sens').value=sens;$('#sensval').textContent=sens.toFixed(1);
 $('#sens').addEventListener('input',e=>{sens=+e.target.value;$('#sensval').textContent=sens.toFixed(1);try{localStorage.setItem('arena.sens',sens)}catch(err){}});
 $('#sens').addEventListener('change',e=>e.target.blur());
 $('#autoset').onchange=e=>{auto=e.target.checked;paintAuto();e.target.blur()};
 $('#tpset').onchange=e=>{tp=e.target.checked;e.target.blur()};
 $('#solo').onclick=()=>send({t:'solo'});$('#tomain').onclick=()=>send({t:'tomain'});
+// 모바일 화면 조작: 왼쪽 조이스틱(이동) + 오른쪽 버튼(발사/점프/장전) + 화면 끌기(시점)
+const isTouch=('ontouchstart' in window)||navigator.maxTouchPoints>0;
+let tui=isTouch;try{const v=localStorage.getItem('arena.tui');if(v!==null)tui=v==='1'}catch(e){}
+function paintTui(){document.body.classList.toggle('tui',tui);$('#tuiset').checked=tui}
+paintTui();
+$('#tuiset').onchange=e=>{tui=e.target.checked;try{localStorage.setItem('arena.tui',tui?'1':'0')}catch(err){}paintTui();e.target.blur()};
+$('#fs').onclick=e=>{try{const el=document.documentElement;(el.requestFullscreen||el.webkitRequestFullscreen).call(el)}catch(err){}e.currentTarget.blur()};
+const jb=$('#joy'),kn=$('#knob'),JR=52;let joyId=null;
+function joySet(e){const r=jb.getBoundingClientRect();let dx=e.clientX-(r.left+r.width/2),dy=e.clientY-(r.top+r.height/2);
+  const d=Math.hypot(dx,dy),mm=Math.min(d,JR);if(d>0){dx=dx/d*mm;dy=dy/d*mm}
+  kn.style.transform=`translate(${dx}px,${dy}px)`;const ax=dx/JR,ay=-dy/JR;joy.x=Math.abs(ax)<.15?0:ax;joy.y=Math.abs(ay)<.15?0:ay}
+jb.addEventListener('pointerdown',e=>{if(joyId!==null)return;joyId=e.pointerId;try{jb.setPointerCapture(e.pointerId)}catch(err){}joySet(e);e.preventDefault()});
+jb.addEventListener('pointermove',e=>{if(e.pointerId===joyId)joySet(e)});
+const joyEnd=e=>{if(e.pointerId!==joyId)return;joyId=null;joy.x=joy.y=0;kn.style.transform='translate(0,0)'};
+jb.addEventListener('pointerup',joyEnd);jb.addEventListener('pointercancel',joyEnd);
+const hold=(el,down,up)=>{let id=null;el.addEventListener('pointerdown',e=>{if(id!==null)return;id=e.pointerId;try{el.setPointerCapture(e.pointerId)}catch(err){}down();e.preventDefault()});
+  const end=e=>{if(e.pointerId!==id)return;id=null;up()};el.addEventListener('pointerup',end);el.addEventListener('pointercancel',end)};
+hold($('#bfire'),()=>{firing=true},()=>{firing=false});
+hold($('#bjump'),()=>{keys.Space=true},()=>{keys.Space=false});
+hold($('#breload'),()=>send({t:'reload'}),()=>{});
 let touchId=null,tx=0,ty=0;const cvs=R.domElement;                 // 화면을 손가락으로 끌어 시점 돌리기 (감도 설정 적용)
 cvs.addEventListener('touchstart',e=>{if(touchId!==null||mode!=='play'||dead)return;const t=e.changedTouches[0];touchId=t.identifier;tx=t.clientX;ty=t.clientY;e.preventDefault()},{passive:false});
 cvs.addEventListener('touchmove',e=>{for(const t of e.changedTouches)if(t.identifier===touchId){
@@ -290,10 +330,10 @@ function startRound(m){
   $('#mapname').append(document.createElement('br'),document.createTextNode('무기: '+curWeapon.name));
   const me=$('#me');me.replaceChildren(document.createTextNode(nick+' · '+tname(myTeam)));me.style.color=thex(myTeam);
   if(dev){const b=document.createElement('i');b.className='badge';b.textContent='개발자';me.append(b)}
-  paintAlive();['#help','#right','#combat'].forEach(s=>$(s).style.display='');$('#back').style.display=hostId===myId?'':'none';
+  document.body.classList.add('ingame');paintAlive();['#help','#right','#combat'].forEach(s=>$(s).style.display='');$('#back').style.display=hostId===myId?'':'none';
 }
 function leaveGame(){mode='lobby';clearOthers();big('');clearInterval(timerI);myTeam=null;tp=false;
-  dead=false;spec=null;firing=false;clearInterval(deadI);clearInterval(clockI);$('#result').style.display='none';$('#settings').style.display='none';['#help','#right','#back','#combat'].forEach(s=>$(s).style.display='none')}
+  dead=false;spec=null;firing=false;clearInterval(deadI);clearInterval(clockI);$('#result').style.display='none';closePanels();document.body.classList.remove('ingame');['#help','#right','#back','#combat'].forEach(s=>$(s).style.display='none')}
 
 // ---------- 다른 플레이어: 위치를 받아서 부드럽게 보간 ----------
 function bodyMesh(color){
@@ -339,7 +379,7 @@ addEventListener('keydown',e=>{
 });
 addEventListener('keyup',e=>{keys[e.code]=false;if(e.code==='KeyR'||e.code==='KeyJ')firing=false});
 addEventListener('resize',()=>{R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()});
-document.addEventListener('mousedown',e=>{if(mode==='play'&&e.button===0&&!e.target.closest('button'))firing=true});
+document.addEventListener('mousedown',e=>{if(mode==='play'&&e.button===0&&!e.target.closest('button,#touchui,.panel'))firing=true});
 document.addEventListener('mouseup',()=>firing=false);
 addEventListener('blur',()=>firing=false);
 loadMap(MAPS[0]);$('#nick').focus();

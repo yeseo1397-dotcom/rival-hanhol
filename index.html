@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Arena</title>
 <style>
 :root{--bg:#0e1a1f;--ink:#e8f1ee;--hot:#ff5a3c;--cool:#38d6c4;box-sizing:border-box}
@@ -51,16 +51,28 @@ button:disabled{opacity:.35;cursor:default}
 #rtable{width:min(660px,100%);display:flex;flex-direction:column;gap:4px}
 .rrow{display:grid;grid-template-columns:1fr 54px 40px 40px 58px 64px;gap:8px;background:#16272e;padding:8px 12px;text-align:center}
 .rrow span:first-child{text-align:left}.rrow.h{background:none;opacity:.6;font-size:13px}.rrow.me{outline:2px solid var(--cool)}
-#auto{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);pointer-events:auto;background:#0008;color:#e8f1ee;border:2px solid #2d464e;padding:8px 16px;font-size:14px}
-#auto.on{border-color:var(--cool);color:var(--cool)}
 #alive{position:absolute;top:calc(84px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);font-size:14px;opacity:.9;text-shadow:0 1px 6px #000}
 #score .mine{text-decoration:underline;text-underline-offset:6px}
-#gear{position:absolute;left:12px;top:calc(12px + env(safe-area-inset-top,0px));pointer-events:auto;background:#0008;color:#e8f1ee;border:2px solid #2d464e;padding:8px 14px;font-size:14px}
-#settings{position:absolute;left:12px;top:calc(60px + env(safe-area-inset-top,0px));width:min(310px,86vw);pointer-events:auto;background:#0e1a1ff2;border:2px solid #2d464e;padding:14px;flex-direction:column;gap:10px;font-size:14px}
-#settings input[type=range]{width:100%;height:32px;padding:0;border:0;background:none;accent-color:var(--cool)}
-#settings .row{display:flex;gap:10px;align-items:center;font-size:15px}
-#settings .row input{width:24px;height:24px;padding:0;accent-color:var(--cool)}
-#settings small,#help{opacity:.75;font-size:12px;line-height:1.7}
+#topleft{position:absolute;left:12px;top:calc(12px + env(safe-area-inset-top,0px));display:flex;gap:8px}
+#topleft button{pointer-events:auto;background:#0008;color:#e8f1ee;border:2px solid #2d464e;padding:8px 14px;font-size:14px}
+.panel{position:absolute;left:12px;top:calc(60px + env(safe-area-inset-top,0px));width:min(320px,88vw);max-height:calc(100vh - 80px);overflow:auto;pointer-events:auto;background:#0e1a1ff2;border:2px solid #2d464e;padding:14px;flex-direction:column;gap:10px;font-size:14px}
+.panel input[type=range]{width:100%;height:32px;padding:0;border:0;background:none;accent-color:var(--cool)}
+.panel .row{display:flex;gap:10px;align-items:center;font-size:15px}
+.panel .row input{width:24px;height:24px;padding:0;accent-color:var(--cool)}
+.panel small,#help{opacity:.75;font-size:12px;line-height:1.7}
+#touchui{display:none}body.tui #touchui{display:block}
+#joy{position:absolute;left:28px;bottom:28px;width:132px;height:132px;border-radius:50%;background:#ffffff14;border:2px solid #ffffff40;pointer-events:auto;touch-action:none;display:flex;align-items:center;justify-content:center}
+#knob{width:56px;height:56px;border-radius:50%;background:#ffffff66;pointer-events:none}
+#bfire,#bjump,#breload{position:absolute;pointer-events:auto;touch-action:none;border-radius:50%;border:2px solid #ffffff66;color:#fff;font-weight:700;padding:0;background:#ff5a3c99}
+#bfire{right:26px;bottom:26px;width:104px;height:104px;font-size:20px}
+#bjump{right:144px;bottom:30px;width:70px;height:70px;font-size:14px;background:#38d6c488}
+#breload{right:50px;bottom:140px;width:62px;height:62px;font-size:13px;background:#ffffff33}
+body.tui #hp{left:190px;bottom:30px;width:150px}body.tui #hp b{font-size:30px}
+body.tui #ammo{right:236px;bottom:36px;font-size:26px}
+body.tui #ping{display:none}
+body.tui #back{bottom:auto;top:calc(76px + env(safe-area-inset-top,0px));right:16px;font-size:12px;padding:6px 10px}
+#rotate{display:none;position:fixed;inset:0;z-index:20;background:#0e1a1ff5;align-items:center;justify-content:center;font-size:22px;text-align:center;padding:20px}
+@media (orientation:portrait){body.tui.ingame #rotate{display:flex}}
 #solo,#tomain{background:transparent;color:var(--cool);border:2px solid var(--cool)}
 #back{position:fixed;right:16px;bottom:16px;padding:8px 14px;font-size:13px}
 #dc{position:fixed;inset:0;background:#0e1a1fee;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:9}
@@ -68,23 +80,36 @@ button:disabled{opacity:.35;cursor:default}
 </head>
 <body>
 <div class="hud" id="right" style="display:none"><div id="me"></div><div id="mapname"></div></div>
+<div id="rotate">화면을 가로로 돌려주세요</div>
 <div id="ping"></div>
 <div id="big"></div>
 <div id="combat" style="display:none">
   <div id="score"></div><div id="timer"></div><div id="alive"></div><div id="ch"></div>
   <div id="hp"><b id="hpnum">100</b><div id="hpbar"><i></i></div></div>
-  <button id="gear" type="button" tabindex="-1">⚙ 설정</button>
-  <div id="settings" style="display:none">
+  <div id="topleft"><button id="helpbtn" type="button" tabindex="-1">? 설명</button><button id="gear" type="button" tabindex="-1">⚙ 설정</button></div>
+  <div id="guide" class="panel" style="display:none">
+    <b>설명 (조작법)</b>
+    <div id="help">방향키: 시점 · WASD: 이동 · Space: 점프 · V: 3인칭 · 노란 원판: 점프대<br>R(또는 마우스 클릭, J): 발사 · T: 재장전 · G: 오토 발사 켜기/끄기<br>[모바일] 왼쪽 조이스틱: 이동 · 오른쪽 버튼: 발사 / 점프 / 장전 · 화면 끌기: 시점 돌리기<br>(개발자) F: 비행, Space: 상승, Shift: 하강</div>
+    <button id="guideclose" type="button">닫기</button>
+  </div>
+  <div id="settings" class="panel" style="display:none">
     <b>설정</b>
     <label for="sens">감도 <span id="sensval">1.0</span></label>
     <input type="range" id="sens" min="0.3" max="3" step="0.1" value="1">
-    <small>화면을 손가락으로 끌어서 시점을 돌릴 수 있어요. 방향키 회전 속도도 같이 바뀝니다.</small>
-    <label class="row"><input type="checkbox" id="autoset"> 오토 발사 (G)</label>
+    <small>화면을 손가락으로 끌어 시점을 돌릴 때와 방향키 회전 속도에 모두 적용돼요.</small>
+    <label class="row"><input type="checkbox" id="autoset"> 오토 발사</label>
+    <small>조준점에 상대가 들어왔을 때만 자동으로 발사돼요. (G 키로도 켜고 끌 수 있어요)</small>
     <label class="row"><input type="checkbox" id="tpset"> 3인칭 시점 (V)</label>
-    <div id="help">방향키: 시점 · WASD: 이동 · Space: 점프 · V: 3인칭 · 노란 원판: 점프대<br>R(또는 마우스 클릭, J): 발사 · T: 재장전 · G: 오토 발사 켜기/끄기<br>(개발자) F: 비행, Space: 상승, Shift: 하강</div>
+    <label class="row"><input type="checkbox" id="tuiset"> 화면 조작 버튼 (모바일)</label>
+    <button id="fs" type="button">전체 화면</button>
     <button id="setclose" type="button">닫기</button>
   </div>
-  <button id="auto" type="button" tabindex="-1">오토 발사 OFF · G</button>
+  <div id="touchui">
+    <div id="joy"><div id="knob"></div></div>
+    <button id="bfire" type="button" tabindex="-1">발사</button>
+    <button id="bjump" type="button" tabindex="-1">점프</button>
+    <button id="breload" type="button" tabindex="-1">장전</button>
+  </div>
   <div id="ammo"></div><div id="klog"></div><div id="dmg"></div>
 </div>
 <button id="back" style="display:none">대기실로 돌아가기 (방장)</button>
