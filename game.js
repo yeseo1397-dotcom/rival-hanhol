@@ -129,9 +129,7 @@ function handle(m){
     case 'teams': startRound(m);break;
     case 'state': applyState(m.p);break;
     case 'correct': P.x=m.x;P.y=m.y;P.z=m.z;break;
-    case 'shot':{if(m.mel)break;const mine=m.id===myId;let from;
-      if(mine){const cp=Math.cos(P.pitch);from=[P.x-Math.sin(P.yaw)*cp*.3,P.y+1.6+Math.sin(P.pitch)*.3,P.z-Math.cos(P.yaw)*cp*.3]}   // 총알은 조준점(눈 위치)에서 출발
-      else from=[m.from[0],m.from[1]-.3,m.from[2]];
+    case 'shot':{if(m.mel)break;const from=muzzleOf(m.id===myId,m);       // 총알은 총구에서 나가서 조준한 지점(끝점)으로 날아감
       m.ends.forEach(e=>addTracer(from,e,m.team==='red'?0xff9a7a:0x9af2e8));break}
     case 'hit':{const c=$('#ch');c.classList.add('hit');c.classList.toggle('hs',!!m.head);setTimeout(()=>c.classList.remove('hit','hs'),m.kill?220:100);break}
     case 'hp':hp=m.hp;if(m.max)maxHp=m.max;paintHud();if(m.dmg>0){if(navigator.vibrate)navigator.vibrate(40);$('#dmg').style.opacity=1;setTimeout(()=>$('#dmg').style.opacity=0,120)}break;
@@ -233,6 +231,16 @@ function paintHud(){
 }
 function scoreEls(r,b){const x=document.createElement('span'),y=document.createElement('span');
   x.className='r';x.textContent=r;y.className='b';y.textContent=b;return[x,document.createTextNode(' : '),y]}
+// 총구 위치: 1인칭은 화면 오른쪽 아래에 보이는 내 총의 끝, 3인칭/다른 사람은 캐릭터가 든 총의 끝
+function muzzleOf(mine,m){
+  if(mine&&!tp){
+    const y=P.yaw,p=P.pitch,cp=Math.cos(p),f=[-Math.sin(y)*cp,Math.sin(p),-Math.cos(y)*cp],r=[Math.cos(y),0,-Math.sin(y)],u=[-r[2]*f[1],r[2]*f[0]-r[0]*f[2],r[0]*f[1]];
+    const e=[P.x,P.y+1.6,P.z],fw=.5+curWeapon.gun[2]/2;
+    return [0,1,2].map(k=>e[k]+r[k]*.25-u[k]*.22+f[k]*fw)}
+  const o=mine?{x:P.x,y:P.y,z:P.z,yaw:P.yaw}:(others[m.id]?{x:others[m.id].mesh.position.x,y:others[m.id].mesh.position.y,z:others[m.id].mesh.position.z,yaw:others[m.id].mesh.rotation.y}:null);
+  if(!o)return [m.from[0],m.from[1]-.3,m.from[2]];
+  const c=Math.cos(o.yaw),s=Math.sin(o.yaw);
+  return [o.x+.3*c-.65*s,o.y+1.1,o.z-.3*s-.65*c]}
 function addTracer(a,b,color){
   const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a),new THREE.Vector3(...b)]),new THREE.LineBasicMaterial({color}));
   scene.add(l);tracers.push({l,t:.07});
