@@ -13,7 +13,7 @@ const W=[
  {id:'lmg',slot:'main',name:'경기관총',cls:'제압',desc:'큰 탄창으로 길목을 막아요. 무겁고 느려요',dmg:20,pellets:1,delay:.08,mag:80,reload:4.5,spread:3.2,speed:.85,zoom:1.5,s:[4,5,2,1],gun:[.1,.12,.6]},
  {id:'burst',slot:'main',name:'3점사 소총',cls:'중거리',desc:'세 발을 묶어 쏘는 정확한 소총',dmg:24,pellets:3,delay:.35,mag:30,reload:1.6,spread:1.4,speed:1,zoom:1.8,s:[4,3,4,3],gun:[.08,.1,.5]},
  {id:'crossbow',slot:'main',name:'석궁',cls:'특수',desc:'소리 없이 날아가는 강력한 한 발',dmg:75,pellets:1,delay:1,mag:1,reload:1.4,spread:0,speed:1,zoom:2.5,s:[5,1,5,3],gun:[.12,.08,.5]},
- {id:'beam',slot:'main',name:'레이저 빔',cls:'특수',desc:'빛줄기가 거의 흔들리지 않는 연속 사격',dmg:8,pellets:1,delay:.04,mag:100,reload:3,spread:.3,speed:.95,zoom:1.8,s:[3,5,5,2],gun:[.07,.07,.55]},
+ {id:'beam',slot:'main',name:'레이저 빔',cls:'특수',desc:'빛줄기가 거의 흔들리지 않는 연속 사격',dmg:8,pellets:1,delay:.04,mag:50,reload:3,spread:.3,speed:.95,zoom:1.8,s:[3,5,5,2],gun:[.07,.07,.55]},
  {id:'pistol',slot:'side',name:'권총',cls:'보조',desc:'빠르게 뽑고 가볍게 움직여요',dmg:28,pellets:1,delay:.25,mag:12,reload:1.1,spread:1.2,speed:1.08,zoom:1.3,s:[2,3,4,5],gun:[.05,.09,.22]},
  {id:'revolver',slot:'side',name:'리볼버',cls:'보조',desc:'맞추기만 하면 강력한 한 발',dmg:60,pellets:1,delay:.7,mag:6,reload:2,spread:.8,speed:1.04,zoom:1.5,s:[4,2,4,4],gun:[.06,.1,.28]},
  {id:'machpistol',slot:'side',name:'기관권총',cls:'보조',desc:'작지만 빠르게 쏟아내는 연사',dmg:12,pellets:1,delay:.07,mag:20,reload:1.2,spread:4,speed:1.08,zoom:1.3,s:[2,5,2,5],gun:[.05,.09,.25]},

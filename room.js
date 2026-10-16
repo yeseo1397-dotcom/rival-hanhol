@@ -97,6 +97,7 @@ function createRoom(env){
     if(phase==='play'&&combat&&!cleared){noKillMs+=C.TICK_MS;
       if(noKillMs>=C.NOKILL_SECS*1000){cleared=true;combat.clearObstacles();broadcast({t:'clear'},p=>p.inGame)}}
     if(phase!=='play'&&phase!=='countdown')return;
+    if(combat)combat.record();
     broadcast({t:'state',p:ents().map(e=>[e.id,+e.x.toFixed(2),+e.y.toFixed(2),+e.z.toFixed(2),+e.yaw.toFixed(3),combat?combat.flags(e):1])},p=>p.inGame)},C.TICK_MS);
 
   // ---------- 접속 / 퇴장 / 메시지 ----------

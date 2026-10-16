@@ -129,7 +129,7 @@ function handle(m){
     case 'teams': startRound(m);break;
     case 'state': applyState(m.p);break;
     case 'correct': P.x=m.x;P.y=m.y;P.z=m.z;break;
-    case 'shot':{if(m.mel)break;const from=muzzleOf(m.id===myId,m);       // 총알은 총구에서 나가서 조준한 지점(끝점)으로 날아감
+    case 'shot':{if(m.mel||m.id===myId)break;const from=muzzleOf(false,m);       // 총알은 총구에서 나가서 조준한 지점(끝점)으로 날아감
       m.ends.forEach(e=>addTracer(from,e,m.team==='red'?0xff9a7a:0x9af2e8));break}
     case 'hit':{const c=$('#ch');c.classList.add('hit');c.classList.toggle('hs',!!m.head);setTimeout(()=>c.classList.remove('hit','hs'),m.kill?220:100);break}
     case 'hp':hp=m.hp;if(m.max)maxHp=m.max;paintHud();if(m.dmg>0){if(navigator.vibrate)navigator.vibrate(40);$('#dmg').style.opacity=1;setTimeout(()=>$('#dmg').style.opacity=0,120)}break;
@@ -143,7 +143,7 @@ function handle(m){
     case 'respawn':{clearInterval(deadI);dead=false;spec=null;P.x=m.x;P.y=m.y;P.z=m.z;P.vy=0;P.pitch=0;P.yaw=m.yaw;fireCd=0;big('');hideSpec();paintAlive();break}
     case 'clear':removeObstacles();big('장애물이 모두 사라졌습니다!','오랫동안 킬이 나오지 않았어요');setTimeout(()=>{if(mode==='play'&&!dead)big('')},3500);break;
     case 'result':showResult(m);break;
-    case 'pong': $('#ping').textContent=`핑 ${Date.now()-m.ts}ms`;break;
+    case 'pong': lastPing=Date.now()-m.ts;$('#ping').textContent=`핑 ${lastPing}ms`;break;
   }
 }
 function renderLobby(){
@@ -202,7 +202,7 @@ function paintWeapons(){[...wsec.querySelectorAll('.w')].forEach(c=>c.classList.
 $('#wready').onclick=()=>{if(mode==='weapons')sendLoadout(true)};
 
 // ---------- 전투: 발사, 체력/탄약 표시, 킬 로그 ----------
-let hp=100,ammo={a:0,m:0,r:0,res:0,inf:false},firing=false,fireCd=0,deadI=null,auto=false,maxHp=150,inSolo=false,roundNo=0,totalRounds=5;
+let lastPing=0,hp=100,ammo={a:0,m:0,r:0,res:0,inf:false},firing=false,fireCd=0,deadI=null,auto=false,maxHp=150,inSolo=false,roundNo=0,totalRounds=5;
 function paintAuto(){$('#autoset').checked=auto}
 function toggleAuto(){auto=!auto;paintAuto()}
 // 오토 발사: 내 조준점(화면 가운데)에 상대가 들어왔을 때만 자동으로 발사. 벽/장애물에 가려진 상대는 해당하지 않음
@@ -212,16 +212,17 @@ function rayEnt(O,D,x,y,z){let best=null;const ox=O[0]-x,oz=O[2]-z,a=D[0]*D[0]+D
   const sx=O[0]-x,sy=O[1]-(y+1.65),sz=O[2]-z,b2=sx*D[0]+sy*D[1]+sz*D[2],d2=b2*b2-(sx*sx+sy*sy+sz*sz-.1225);
   if(d2>=0){const t=-b2-Math.sqrt(d2);if(t>0&&(best===null||t<best))best=t}
   return best}
-function crosshairOnEnemy(range=Infinity){
+function aimRay(range=Infinity){                // 조준점(화면 가운데)이 가리키는 선: 벽/상대 중 처음 닿는 곳까지
   const cp=Math.cos(P.pitch),D=[-Math.sin(P.yaw)*cp,Math.sin(P.pitch),-Math.cos(P.yaw)*cp],O=[P.x,P.y+1.6,P.z];
-  let tw=Infinity;
+  let tw=Infinity,te=Infinity;
   for(const b of boxes){const lo=[b.x-b.w,b.y0,b.z-b.d],hi=[b.x+b.w,b.h,b.z+b.d];let t0=0,t1=Infinity,ok=true;
     for(let i=0;i<3&&ok;i++){if(Math.abs(D[i])<1e-9){if(O[i]<lo[i]||O[i]>hi[i])ok=false}
       else{let u=(lo[i]-O[i])/D[i],v=(hi[i]-O[i])/D[i];if(u>v)[u,v]=[v,u];t0=Math.max(t0,u);t1=Math.min(t1,v);if(t0>t1)ok=false}}
     if(ok&&t0<tw)tw=t0}
   for(const id in others){const o=others[id];if(o.alive===false||teamMap[id]===myTeam)continue;
-    const e=o.mesh.position,t=rayEnt(O,D,e.x,e.y,e.z);if(t!==null&&t<tw&&t<=range)return true}
-  return false}
+    const e=o.mesh.position,t=rayEnt(O,D,e.x,e.y,e.z);if(t!==null&&t<te)te=t}
+  return{O,D,t:Math.min(tw,te,range===Infinity?120:Math.min(range,120)),onEnemy:te<tw&&te<=range}}
+function crosshairOnEnemy(range=Infinity){return aimRay(range).onEnemy}
 const teamMap={},nickMap={};
 const countdown2=(secs,fn)=>{let s=secs;fn(s);deadI=setInterval(()=>{s--;if(s>=0)fn(s);if(s<=0)clearInterval(deadI)},1000)};
 function paintHud(){
@@ -249,7 +250,10 @@ function tryFire(){
   if(fireCd>0||dead)return;const mel=curWeapon.melee;
   if(!mel&&(ammo.r||ammo.a<=0))return;
   fireCd=curWeapon.delay;if(!mel){ammo.a=Math.max(0,ammo.a-(curWeapon.id==='burst'?3:1));paintHud()}
-  send({t:'shoot',x:+P.x.toFixed(2),y:+P.y.toFixed(2),z:+P.z.toFixed(2),yaw:+P.yaw.toFixed(3),pitch:+P.pitch.toFixed(3)});   // 총알은 조준점(화면 가운데) 방향
+  send({t:'shoot',x:+P.x.toFixed(2),y:+P.y.toFixed(2),z:+P.z.toFixed(2),yaw:+P.yaw.toFixed(3),pitch:+P.pitch.toFixed(3),lat:Math.min(250,Math.round(lastPing/2+70))});   // 총알은 조준점 방향, lat=내 화면이 늦은 정도(서버가 그 시점의 상대 위치로 판정)
+  if(!mel){                                       // 쏘자마자 총구에서 조준한 지점까지 총알 궤적을 바로 보여줌 (서버 응답을 기다리지 않음)
+    const ar=aimRay(120),mz=muzzleOf(true,null),n=curWeapon.pellets||1,tn=Math.tan((curWeapon.spread||0)*Math.PI/180),col=myTeam==='red'?0xff9a7a:0x9af2e8;
+    for(let i=0;i<n;i++){const j=n>1?tn*ar.t:0;addTracer(mz,[0,1,2].map(k=>ar.O[k]+ar.D[k]*ar.t+(i?(Math.random()-.5)*2*j:0)),col)}}
   gun.position.z=-.42;setTimeout(()=>gun.position.z=-.5,60);
 }
 // 무기 교체 / 조준경(확대)

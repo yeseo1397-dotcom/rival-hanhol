@@ -29,6 +29,16 @@ function create(o){
     if(ts!==null&&(tc===null||ts<=tc))return{t:ts,head:true};
     return{t:tc,head:false}}
 
+  // 지연 보정: 상대 위치를 최근 0.7초 동안 기록해 두고, 쏜 사람이 본 시점의 위치로 맞았는지 판정 (쏘자마자 맞는 느낌)
+  const hist=new Map();
+  function record(){const t=now();for(const e of o.ents()){let h=hist.get(e.id);if(!h){h=[];hist.set(e.id,h)}h.push([t,e.x,e.y,e.z]);while(h.length&&h[0][0]<t-700)h.shift()}}
+  function posAt(e,tt){
+    const h=hist.get(e.id);if(!h||!h.length||tt>=h[h.length-1][0])return e;
+    if(tt<=h[0][0])return{x:h[0][1],y:h[0][2],z:h[0][3]};
+    for(let i=h.length-1;i>0;i--)if(h[i-1][0]<=tt){const a=h[i-1],b=h[i],k=(tt-a[0])/Math.max(1,b[0]-a[0]);
+      return{x:a[1]+(b[1]-a[1])*k,y:a[2]+(b[2]-a[2])*k,z:a[3]+(b[3]-a[3])*k}}
+    return e}
+
   // ---------- 무기 슬롯 / 탄약 ----------
   const ammoMsg=e=>{const w=wOf(e);if(!w)return;
     emit(e,{t:'ammo',a:e.ammo,m:w.melee?0:w.mag,res:e.reserve,r:now()<e.reloadUntil?1:0,inf:w.melee?1:0})};
@@ -44,7 +54,7 @@ function create(o){
   function init(e){Object.assign(e,{kills:0,deaths:0,heads:0,dmg:0});revive(e)}
   const flags=e=>(e.alive?1:0)|(now()<e.inv?2:0);
   const start=()=>o.ents().forEach(init);
-  function resetRound(){o.ents().forEach(e=>{revive(e);emit(e,{t:'respawn',x:e.x,y:0,z:e.z,yaw:e.yaw})})}
+  function resetRound(){hist.clear();o.ents().forEach(e=>{revive(e);emit(e,{t:'respawn',x:e.x,y:0,z:e.z,yaw:e.yaw})})}
   function equip(e,slot){                     // 무기 교체 (0.35초 동안 발사 불가, 재장전은 취소)
     if(!e.alive||!e.stock||!e.stock[slot]||slot===e.slot)return false;
     saveStock(e);e.slot=slot;e.weapon=e.loadout[slot];const st=e.stock[slot];
@@ -59,7 +69,7 @@ function create(o){
     if(!mel)e.ammo=Math.max(0,e.ammo-(w.id==='burst'?3:1));
     const near=Math.hypot((+msg.x||0)-e.x,(+msg.z||0)-e.z)<2;  // 클라이언트 위치가 서버 기록과 가까우면 그대로 사용
     const px=near?+msg.x:e.x,py=near?Math.max(0,+msg.y||0):e.y,pz=near?+msg.z:e.z;
-    const yaw=+msg.yaw||0,pit=Math.max(-1.5,Math.min(1.5,+msg.pitch||0));
+    const yaw=+msg.yaw||0,pit=Math.max(-1.5,Math.min(1.5,+msg.pitch||0)),tt=t-Math.max(0,Math.min(250,+msg.lat||0));
     // 총알은 항상 조준점(화면 가운데)이 가리키는 방향, 눈 높이에서 나간다
     const O=[px,py+1.6,pz],base=[-Math.sin(yaw)*Math.cos(pit),Math.sin(pit),-Math.cos(yaw)*Math.cos(pit)];
     const rg=[Math.cos(yaw),0,-Math.sin(yaw)],up=[-rg[2]*base[1],rg[2]*base[0]-rg[0]*base[2],rg[0]*base[1]];
@@ -70,7 +80,7 @@ function create(o){
       let tw=Math.min(rayBox(O,D),range),hit=null;
       for(const v of o.ents()){
         if(v===e||!v.alive||v.team===e.team||t<v.inv)continue;  // 아군/사망자/무적은 맞지 않음
-        const h=hitEnt(O,D,v);if(h&&h.t<tw){tw=h.t;hit={v,head:h.head}}}
+        const h=hitEnt(O,D,posAt(v,tt));if(h&&h.t<tw){tw=h.t;hit={v,head:h.head}}}
       ends.push([0,1,2].map(k=>r2(O[k]+D[k]*tw)));
       if(hit){const c=dm.get(hit.v)||{d:0,head:false};c.d+=w.dmg*(hit.head?2:1);c.head=c.head||hit.head;dm.set(hit.v,c)}}
     emit('all',{t:'shot',id:e.id,from:O.map(r2),ends,team:e.team,mel:mel?1:0});
@@ -98,7 +108,7 @@ function create(o){
       if(!e.alive||e.slot!==slot||!e.reloadUntil||now()<e.reloadUntil-5)return;
       const take=Math.min(w.mag-e.ammo,e.reserve);e.ammo+=take;e.reserve-=take;e.reloadUntil=0;ammoMsg(e)})}
 
-  return{score,start,shoot,reload,equip,flags,resetRound,clearObstacles}
+  return{score,start,shoot,reload,equip,flags,resetRound,clearObstacles,record}
 }
 const api={create};
 if(typeof module!=='undefined')module.exports=api;else window.Combat=api;
